@@ -13,6 +13,7 @@ use OCA\InterFonts\AppInfo\Application;
 use OCP\AppFramework\Http\Events\BeforeTemplateRenderedEvent;
 use OCP\EventDispatcher\Event;
 use OCP\EventDispatcher\IEventListener;
+use OCP\App\IAppManager;
 use OCP\IURLGenerator;
 use OCP\Util;
 
@@ -32,6 +33,7 @@ class BeforeTemplateRenderedListener implements IEventListener {
 
     public function __construct(
         private readonly IURLGenerator $urlGenerator,
+		private readonly IAppManager $appManager,
     ) {}
 
     public function handle(Event $event): void {
@@ -45,6 +47,9 @@ class BeforeTemplateRenderedListener implements IEventListener {
         $cssUrl = $this->urlGenerator->linkToRoute(
             'interfonts.CSS.stylesheet'
         );
+		
+		// Use app version as cache-buster (Nextcloud-style)
+		$version = $this->appManager->getAppVersion(Application::APP_ID);
 
         // Util::addStyle($app, $file) is designed for static files in an app's
         // css/ directory — it constructs the URL as linkTo($app, 'css/'.$file.'.css')
@@ -52,7 +57,7 @@ class BeforeTemplateRenderedListener implements IEventListener {
         // injects a raw <link> element verbatim into <head>.
         Util::addHeader('link', [
             'rel'  => 'stylesheet',
-            'href' => $cssUrl,
+            'href' => $cssUrl . '?v=' . $version,
             'type' => 'text/css',
         ]);
     }
