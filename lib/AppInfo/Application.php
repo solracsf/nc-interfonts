@@ -19,12 +19,31 @@ use OCP\AppFramework\Http\Events\BeforeTemplateRenderedEvent;
 /**
  * Main application class for the Inter Fonts app.
  *
- * Registers a BeforeTemplateRenderedEvent listener that injects the Inter
- * font stylesheet and the runtime-generated absolute font-file URLs into
- * every Nextcloud HTML response.
+ * Architecture overview
+ * ---------------------
+ * This app uses three components working together:
  *
- * BeforeTemplateRenderedListener depends on IURLGenerator which is resolved
- * automatically by the Nextcloud DI container.
+ * 1. BeforeTemplateRenderedListener
+ *    Fires on every page render and calls Util::addStyle() with the URL of
+ *    the CSSController::stylesheet() route. Nextcloud injects that URL as a
+ *    <link rel="stylesheet"> in the page <head>.
+ *
+ * 2. CSSController (GET /index.php/apps/interfonts/css)
+ *    Returns a text/css response containing the @font-face declarations.
+ *    Font file URLs inside @font-face are generated with linkToRoute() so
+ *    they are always correct regardless of sub-directory installs.
+ *
+ * 3. FontController (GET /index.php/apps/interfonts/font/{filename})
+ *    Streams the WOFF2 binary with correct MIME type and long-lived cache
+ *    headers. Filename is validated against an explicit allowlist.
+ *
+ * Why a controller for CSS?
+ * -------------------------
+ * Nextcloud's asset pipeline serves files from css/ at a versioned/hashed
+ * URL path (e.g. /css-cache/xxxxx.css). Relative paths like ../fonts/ inside
+ * that file resolve against the cache URL, not the app directory, so they
+ * always 404. Using IURLGenerator::linkToRoute() in a controller is the only
+ * way to get a stable, sub-directory-safe URL for the font files.
  */
 class Application extends App implements IBootstrap {
 
@@ -34,10 +53,6 @@ class Application extends App implements IBootstrap {
         parent::__construct(self::APP_ID);
     }
 
-    /**
-     * Register services and event listeners.
-     * Container resolution is NOT available in this method.
-     */
     public function register(IRegistrationContext $context): void {
         $context->registerEventListener(
             BeforeTemplateRenderedEvent::class,
@@ -45,11 +60,7 @@ class Application extends App implements IBootstrap {
         );
     }
 
-    /**
-     * Boot-time logic after the container is fully assembled.
-     * No additional actions are required for this app.
-     */
     public function boot(IBootContext $context): void {
-        // Intentionally empty — all behaviour is driven by the event listener.
+        // Intentionally empty.
     }
 }

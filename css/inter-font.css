@@ -2,123 +2,15 @@
  * SPDX-FileCopyrightText: 2026 Inter Fonts App Contributors
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
- * Inter is licensed under the SIL Open Font License 1.1
- * Copyright (c) 2016-2026 The Inter Project Authors (https://github.com/rsms/inter)
- *
  * Bundled Inter version: v4.1
  *
- * NOTE: This file does NOT contain @font-face declarations.
+ * NOTE: This file is intentionally empty of @font-face rules.
  *
- * The @font-face blocks are emitted as an inline <style> tag by
- * BeforeTemplateRenderedListener using IURLGenerator::linkTo() to resolve
- * the correct absolute path to the WOFF2 files at request time.
+ * @font-face declarations are generated at request-time by
+ * CSSController::stylesheet() with correct absolute font URLs via
+ * IURLGenerator::linkToRoute(). That generated stylesheet is injected
+ * into every page by BeforeTemplateRenderedListener.
  *
- * Reason: the CSS spec forbids var() inside url() (CSSWG issue #794), so
- * font file paths cannot live in a static CSS file when Nextcloud is
- * installed in a sub-directory. Putting the @font-face inline with a plain
- * URL literal is the only spec-compliant solution.
- *
- * This file only handles font-family *application* — assigning the already-
- * declared "Inter" family to every relevant element in the Nextcloud UI.
- *
- * No external hosts, CDNs, or remote services are contacted at any point.
+ * This file exists only to satisfy Util::addStyle() calls that expect
+ * a file in css/ for editor tooling and fallback purposes.
  */
-
-/* =========================================================================
-   1. --font-face CSS variable override (belt-and-suspenders)
-
-   The inline <style id="inter-fonts-core"> block injected by the listener
-   already sets --font-face before this file is parsed. This rule is a
-   cached-page fallback only.
-   ======================================================================= */
-:root {
-    --font-face: "Inter", -apple-system, BlinkMacSystemFont,
-                 "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell,
-                 "Helvetica Neue", Arial, sans-serif,
-                 "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol" !important;
-}
-
-/* =========================================================================
-   2. Global application — html / body
-   ======================================================================= */
-html,
-body {
-    font-family: var(--font-face) !important;
-}
-
-/* =========================================================================
-   3. Form controls
-   Nextcloud resets font-family on these elements explicitly, so we
-   override them directly rather than relying on inheritance.
-   ======================================================================= */
-input,
-button,
-select,
-textarea,
-optgroup,
-option {
-    font-family: var(--font-face) !important;
-}
-
-/* =========================================================================
-   4. Nextcloud UI surface — navigation, content, modals, header, login
-   ======================================================================= */
-#app-navigation,
-#app-navigation-vue,
-#app-content,
-#app-content-vue,
-#app-sidebar,
-#app-sidebar-vue,
-.modal-container,
-.modal-wrapper,
-.popover,
-.popover__inner,
-.tooltip,
-.toastify,
-#header,
-.header-left,
-.header-right,
-.header-menu,
-.body-login-container,
-#body-login,
-.guest-box,
-.update,
-.nc-chip,
-.breadcrumb,
-.breadcrumb__crumb,
-.file-picker,
-.filepicker,
-.sharing-entry,
-.action-button,
-.action-input,
-.action-link,
-.action-text,
-.empty-content,
-.emptycontent,
-table,
-th,
-td {
-    font-family: var(--font-face) !important;
-}
-
-/* =========================================================================
-   5. Optical sizing — activates Inter's built-in per-size adjustments
-   ======================================================================= */
-h1, h2, h3, h4, h5, h6 {
-    font-optical-sizing: auto;
-    font-variation-settings: "opsz" 32;
-}
-
-/* =========================================================================
-   6. Tabular numerals in data-dense contexts (file sizes, dates, counters)
-   ======================================================================= */
-.files-list,
-.files-list__row,
-.files-filestable,
-.files-filestable td,
-.filesize,
-time,
-.modified,
-.date {
-    font-variant-numeric: tabular-nums;
-}
