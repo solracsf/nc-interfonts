@@ -4,6 +4,8 @@ Replaces every Nextcloud interface font with **Inter**, a screen-optimised
 variable typeface by Rasmus Andersson. All font files are embedded directly
 inside the app — no CDN, no Google Fonts, no external requests of any kind.
 
+<img alt="Nextcloud 32 screenshot using Inter font" src="https://github.com/user-attachments/assets/7cad445e-e011-4f4a-b211-e3d9fb2315f4" />
+
 ## Features
 
 | Feature | Details |
@@ -13,7 +15,6 @@ inside the app — no CDN, no Google Fonts, no external requests of any kind.
 | Full UI coverage | Injected on every page via `BeforeTemplateRenderedEvent` |
 | Sub-directory safe | Font URLs generated at runtime via `IURLGenerator` |
 | Deep integration | Overrides Nextcloud's `--font-face` CSS variable |
-| Auto-updated | GitHub Actions bumps the app version when Inter releases a new version |
 
 ## Requirements
 
