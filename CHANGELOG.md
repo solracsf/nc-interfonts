@@ -1,4 +1,10 @@
 # Changelog
+## 1.2.0 - 2026-04-04
+
+### Changed
+- Updated bundled Inter font to v4.1.
+  Source: https://github.com/rsms/inter/releases/tag/v4.1
+
 
 ## 1.1.0 — 2026-04-04
 
