@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0 — 2026-04-04
+
+### Minor release
+- Version bump from 1.2.2 to 1.3.0.
+
+
 ## 1.2.2 — 2026-04-04
 
 ### Patch release
