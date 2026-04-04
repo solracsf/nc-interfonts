@@ -24,9 +24,11 @@ use OCP\AppFramework\Http\Events\BeforeTemplateRenderedEvent;
  * This app uses three components working together:
  *
  * 1. BeforeTemplateRenderedListener
- *    Fires on every page render and calls Util::addStyle() with the URL of
- *    the CSSController::stylesheet() route. Nextcloud injects that URL as a
- *    <link rel="stylesheet"> in the page <head>.
+ *    Fires on every page render and calls Util::addHeader() to inject a
+ *    <link rel="stylesheet"> pointing at the CSSController::stylesheet()
+ *    route into the page <head>. Util::addStyle() is intentionally NOT used
+ *    because it routes through CSSResourceLocator, which looks for files on
+ *    disk and silently drops URLs that do not resolve to a real file.
  *
  * 2. CSSController (GET /index.php/apps/interfonts/css)
  *    Returns a text/css response containing the @font-face declarations.
