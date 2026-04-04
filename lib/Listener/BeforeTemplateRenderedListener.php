@@ -17,20 +17,14 @@ use OCP\IURLGenerator;
 use OCP\Util;
 
 /**
- * Injects the Inter font stylesheet URL into every Nextcloud page.
+ * Injects the Inter font stylesheet into every Nextcloud page.
  *
- * Rather than pointing Util::addStyle() at a static file in css/ (which is
- * served through Nextcloud's asset pipeline at a hashed path, breaking
- * relative font URLs), we point it at the CSSController::stylesheet() route.
- *
- * Nextcloud's Util::addStyle() accepts either:
- *   (string $app, string $file)  — static file in css/<file>.css
- *   (string $app, string $url)   — already an absolute or root-relative URL
- *
- * We use the second form by generating the full route URL and passing it
- * as the $file parameter with an empty $app, which tells Nextcloud to inject
- * it as-is into the page <head> as:
- *   <link rel="stylesheet" href="/index.php/apps/interfonts/css">
+ * The @font-face rules are generated at request-time by CSSController so that
+ * font URLs are always correct regardless of sub-directory installs. We inject
+ * the stylesheet via Util::addHeader() (a raw <link> in <head>) rather than
+ * Util::addStyle(), because addStyle() is designed for static app CSS files
+ * and constructs the URL as linkTo($app, 'css/'.$file.'.css') — it would mangle
+ * a full controller route URL.
  *
  * @template-implements IEventListener<BeforeTemplateRenderedEvent>
  */
@@ -52,9 +46,14 @@ class BeforeTemplateRenderedListener implements IEventListener {
             'interfonts.CSS.stylesheet'
         );
 
-        // Inject as a <link rel="stylesheet"> in every page <head>.
-        // Passing '' as $app and the full URL as $file causes Nextcloud to
-        // write the URL verbatim into the link tag href.
-        Util::addStyle('', $cssUrl);
+        // Util::addStyle($app, $file) is designed for static files in an app's
+        // css/ directory — it constructs the URL as linkTo($app, 'css/'.$file.'.css')
+        // and will mangle a full route URL. Use addHeader() instead, which
+        // injects a raw <link> element verbatim into <head>.
+        Util::addHeader('link', [
+            'rel'  => 'stylesheet',
+            'href' => $cssUrl,
+            'type' => 'text/css',
+        ]);
     }
 }
