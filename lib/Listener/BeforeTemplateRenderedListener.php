@@ -17,22 +17,28 @@ use OCP\IURLGenerator;
 use OCP\Util;
 
 /**
- * Injects the Inter font stylesheet and a small inline <style> block before
- * every Nextcloud page is rendered.
+ * Injects the Inter font stylesheet and a runtime-generated inline <style>
+ * block before every Nextcloud page is rendered.
  *
- * Two injection mechanisms are used together:
+ * Why two mechanisms?
+ * -------------------------------------------------------------------
+ * The @font-face `src` descriptor requires a *literal* URL token — the CSS
+ * spec explicitly forbids var() inside url() (CSSWG issue #794). This means
+ * the font file paths cannot be placed in a static CSS file when Nextcloud
+ * is installed in a sub-directory, because the path is only known at
+ * request time via IURLGenerator::linkTo().
  *
- *  1. Util::addStyle() queues css/inter-font.css into the page <head>.
- *     Nextcloud handles versioning, deduplication, and caching for this file.
- *     The @font-face rules inside that CSS reference the font files via
- *     absolute URLs generated at runtime by IURLGenerator so that the paths
- *     are always correct regardless of Nextcloud's sub-directory install path
- *     or URL rewriting configuration.
+ * The solution is to emit the *entire* @font-face block as an inline <style>
+ * tag with the resolved absolute URLs embedded as plain string literals.
+ * The external inter-font.css then only handles font-family application
+ * (html, body, inputs, Nextcloud selectors) and relies on the "Inter" family
+ * name declared in the inline block above it.
  *
- *  2. An inline <style> block is prepended to the page via
- *     Util::addHeader() to override the --font-face CSS custom property
- *     immediately (before the external stylesheet is parsed), eliminating
- *     any flash of unstyled text during the stylesheet download.
+ * Execution order:
+ *   1. Util::addHeader() → inline <style id="inter-fonts-core"> is placed
+ *      in <head> with the @font-face + :root --font-face override.
+ *   2. Util::addStyle()  → inter-font.css is appended after it and applies
+ *      font-family: var(--font-face) to every Nextcloud element.
  *
  * @template-implements IEventListener<BeforeTemplateRenderedEvent>
  */
@@ -45,6 +51,9 @@ class BeforeTemplateRenderedListener implements IEventListener {
     /**
      * Handle the BeforeTemplateRenderedEvent.
      *
+     * Resolves the absolute font file URLs and injects the critical inline
+     * CSS block, then queues the application stylesheet.
+     *
      * @param Event $event The dispatched event.
      */
     public function handle(Event $event): void {
@@ -52,18 +61,8 @@ class BeforeTemplateRenderedListener implements IEventListener {
             return;
         }
 
-        // --- 1. Queue the main stylesheet -----------------------------------
-        Util::addStyle(Application::APP_ID, 'inter-font');
-
-        // --- 2. Emit absolute font URLs as CSS variables in an inline block -
-        //
-        // IURLGenerator::linkTo() returns the correct absolute path to a
-        // static file inside the app, respecting sub-directory installs,
-        // HTTPS, and any configured overwrite.cli.url.
-        //
-        // These CSS custom properties are consumed by the @font-face rules
-        // in inter-font.css via the var() fallback chain, and also let
-        // third-party themes reference the font files by URL if needed.
+        // Resolve absolute paths to the embedded WOFF2 files.
+        // linkTo() respects sub-directory installs and overwrite.cli.url.
         $romanUrl  = $this->urlGenerator->linkTo(
             Application::APP_ID,
             'fonts/Inter.var.woff2'
@@ -73,19 +72,55 @@ class BeforeTemplateRenderedListener implements IEventListener {
             'fonts/InterItalic.var.woff2'
         );
 
-        $inlineCss = sprintf(
-            ':root{'
-            . '--inter-font-url:\'%s\';'
-            . '--inter-italic-font-url:\'%s\';'
-            . '--font-face:"Inter",-apple-system,BlinkMacSystemFont,'
+        // Sanitise URLs for safe embedding in a CSS string literal.
+        // linkTo() returns internal paths — no untrusted input — but we
+        // escape single quotes defensively.
+        $romanUrlSafe  = str_replace("'", '%27', $romanUrl);
+        $italicUrlSafe = str_replace("'", '%27', $italicUrl);
+
+        $fallbackStack = '"Inter",-apple-system,BlinkMacSystemFont,'
             . '"Segoe UI",Roboto,Oxygen-Sans,Ubuntu,Cantarell,'
             . '"Helvetica Neue",Arial,sans-serif,'
-            . '"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol"!important'
+            . '"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol"';
+
+        // Build the inline block:
+        //   - Two @font-face rules with literal URL tokens (var() is forbidden
+        //     inside url() per the CSS spec — this is the root cause of the
+        //     font not loading when using a static CSS file alone).
+        //   - :root override for --font-face so Nextcloud's own stylesheets
+        //     (which consume that variable) also switch to Inter.
+        $inlineCss = sprintf(
+            '@font-face{'
+                . 'font-family:"Inter";'
+                . 'font-style:normal;'
+                . 'font-weight:100 900;'
+                . 'font-display:swap;'
+                . "src:url('%s') format('woff2')"
+            . '}'
+            . '@font-face{'
+                . 'font-family:"Inter";'
+                . 'font-style:italic;'
+                . 'font-weight:100 900;'
+                . 'font-display:swap;'
+                . "src:url('%s') format('woff2')"
+            . '}'
+            . ':root{'
+                . '--inter-font-url:\'%s\';'
+                . '--inter-italic-font-url:\'%s\';'
+                . '--font-face:%s!important'
             . '}',
-            addslashes($romanUrl),
-            addslashes($italicUrl)
+            $romanUrlSafe,
+            $italicUrlSafe,
+            $romanUrlSafe,
+            $italicUrlSafe,
+            $fallbackStack
         );
 
-        Util::addHeader('style', ['id' => 'inter-fonts-vars'], $inlineCss);
+        // Inject the inline block first so @font-face is registered before
+        // the external stylesheet requests the font files.
+        Util::addHeader('style', ['id' => 'inter-fonts-core'], $inlineCss);
+
+        // Queue the application stylesheet (font-family application rules).
+        Util::addStyle(Application::APP_ID, 'inter-font');
     }
 }
