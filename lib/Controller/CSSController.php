@@ -35,6 +35,13 @@ use OCP\IURLGenerator;
  *
  * Cache-Control: max-age=604800 (7 days) is intentional — the URLs are
  * stable and the content only changes on app upgrade.
+ *
+ * NOTE: The route URL is /stylesheet, not /css.
+ * The app ships a real css/ directory on disk. Apache and nginx resolve a
+ * physical directory before the index.php rewrite rule fires, so
+ * GET /apps/interfonts/css was served as a directory listing (403/404)
+ * rather than reaching this controller. /stylesheet has no on-disk
+ * counterpart and therefore always passes through to index.php.
  */
 class CSSController extends Controller {
 
@@ -48,8 +55,8 @@ class CSSController extends Controller {
     /**
      * Returns the @font-face CSS block for Inter.
      *
-     * Route: GET /index.php/apps/interfonts/css
-     * Injected into every page via Util::addStyle() in the listener.
+     * Route: GET /index.php/apps/interfonts/stylesheet
+     * Injected into every page via Util::addHeader() in the listener.
      */
     #[PublicPage]
     #[NoCSRFRequired]
