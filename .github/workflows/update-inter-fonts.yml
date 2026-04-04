@@ -65,9 +65,7 @@ jobs:
           fi
 
           echo "Resolved Inter version: $TARGET"
-          echo "target_version=$TARGET" >> "$GITHUB_OUTPUT"
-
-          # Also expose a clean numeric string, e.g. "4.1"
+          echo "target_version=$TARGET"        >> "$GITHUB_OUTPUT"
           echo "target_version_num=${TARGET#v}" >> "$GITHUB_OUTPUT"
 
       # -----------------------------------------------------------------------
@@ -96,16 +94,13 @@ jobs:
             echo "Already at $TARGET — nothing to do."
             echo "needs_update=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Update needed: $CURRENT → $TARGET"
+            echo "Update needed: $CURRENT -> $TARGET"
             echo "needs_update=true" >> "$GITHUB_OUTPUT"
           fi
 
       # -----------------------------------------------------------------------
-      # 5. Compute new app version (bump minor component)
-      #
-      #    App version follows: <major>.<minor>.<patch>
-      #    On each font update we bump <minor> and reset <patch> to 0.
-      #    Example: 1.0.0 → 1.1.0 → 1.2.0
+      # 5. Compute new app version (bump minor, reset patch)
+      #    Example: 1.1.0 -> 1.2.0
       # -----------------------------------------------------------------------
       - name: Compute new app version
         id: appver
@@ -114,14 +109,13 @@ jobs:
           CURRENT_APP=$(grep -oP '(?<=<version>)[^<]+' appinfo/info.xml | tr -d '[:space:]')
           MAJOR=$(echo "$CURRENT_APP" | cut -d. -f1)
           MINOR=$(echo "$CURRENT_APP" | cut -d. -f2)
-          PATCH=$(echo "$CURRENT_APP" | cut -d. -f3)
 
           NEW_MINOR=$(( MINOR + 1 ))
           NEW_APP_VERSION="${MAJOR}.${NEW_MINOR}.0"
 
-          echo "App version: $CURRENT_APP → $NEW_APP_VERSION"
-          echo "current_app_version=$CURRENT_APP"     >> "$GITHUB_OUTPUT"
-          echo "new_app_version=$NEW_APP_VERSION"     >> "$GITHUB_OUTPUT"
+          echo "App version: $CURRENT_APP -> $NEW_APP_VERSION"
+          echo "current_app_version=$CURRENT_APP" >> "$GITHUB_OUTPUT"
+          echo "new_app_version=$NEW_APP_VERSION"  >> "$GITHUB_OUTPUT"
 
       # -----------------------------------------------------------------------
       # 6. Download Inter release ZIP
@@ -129,7 +123,7 @@ jobs:
       - name: Download Inter release ZIP
         if: steps.check.outputs.needs_update == 'true'
         env:
-          TARGET: ${{ steps.resolve.outputs.target_version }}
+          TARGET:      ${{ steps.resolve.outputs.target_version }}
           VERSION_NUM: ${{ steps.resolve.outputs.target_version_num }}
         run: |
           ZIP_URL="https://github.com/rsms/inter/releases/download/${TARGET}/Inter-${VERSION_NUM}.zip"
@@ -143,9 +137,6 @@ jobs:
       #    Inter ZIP layout (v4.x):
       #      Inter-X.Y/extras/variable/Inter[wght].woff2
       #      Inter-X.Y/extras/variable/Inter-Italic[wght].woff2
-      #
-      #    We use a pattern match then fall back to a full extract + find
-      #    to survive any future ZIP layout changes.
       # -----------------------------------------------------------------------
       - name: Extract variable WOFF2 files
         if: steps.check.outputs.needs_update == 'true'
@@ -195,7 +186,7 @@ jobs:
           NEW: ${{ steps.appver.outputs.new_app_version }}
         run: |
           sed -i "s|<version>${OLD}</version>|<version>${NEW}</version>|" appinfo/info.xml
-          echo "info.xml version: $OLD → $NEW"
+          echo "info.xml version: $OLD -> $NEW"
 
       # -----------------------------------------------------------------------
       # 9. Update CHANGELOG.md — prepend a new entry
@@ -204,13 +195,11 @@ jobs:
         if: steps.check.outputs.needs_update == 'true'
         env:
           NEW_APP: ${{ steps.appver.outputs.new_app_version }}
-          INTER: ${{ steps.resolve.outputs.target_version }}
-          TODAY: ${{ github.run_started_at }}
+          INTER:   ${{ steps.resolve.outputs.target_version }}
         run: |
           DATE=$(date -u +%Y-%m-%d)
           ENTRY="## ${NEW_APP} — ${DATE}\n\n### Changed\n- Updated bundled Inter font to ${INTER}.\n  Source: https://github.com/rsms/inter/releases/tag/${INTER}\n"
-          # Prepend after the first line (# Changelog header)
-          sed -i "1a\\\n${ENTRY}" CHANGELOG.md
+          sed -i "1a\\${ENTRY}" CHANGELOG.md
 
       # -----------------------------------------------------------------------
       # 10. Update bundled-version comment in css/inter-font.css
@@ -220,10 +209,8 @@ jobs:
         env:
           INTER: ${{ steps.resolve.outputs.target_version }}
         run: |
-          # Update copyright year
           sed -i "s|Copyright (c) 2016-[0-9]\{4\} The Inter Project|Copyright (c) 2016-$(date +%Y) The Inter Project|g" css/inter-font.css
 
-          # Update or insert bundled-version comment
           if grep -q 'Bundled Inter version:' css/inter-font.css; then
             sed -i "s|Bundled Inter version:.*|Bundled Inter version: ${INTER}|g" css/inter-font.css
           else
@@ -237,7 +224,7 @@ jobs:
         if: steps.check.outputs.needs_update == 'true'
         env:
           NEW_APP: ${{ steps.appver.outputs.new_app_version }}
-          INTER: ${{ steps.resolve.outputs.target_version }}
+          INTER:   ${{ steps.resolve.outputs.target_version }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -260,7 +247,7 @@ jobs:
         if: steps.check.outputs.needs_update == 'true'
         env:
           NEW_APP: ${{ steps.appver.outputs.new_app_version }}
-          INTER: ${{ steps.resolve.outputs.target_version }}
+          INTER:   ${{ steps.resolve.outputs.target_version }}
         run: |
           TAG="v${NEW_APP}"
           git tag -a "$TAG" -m "Release ${TAG} — bundles Inter font ${INTER}"
@@ -268,34 +255,52 @@ jobs:
           echo "Pushed tag: $TAG"
 
       # -----------------------------------------------------------------------
-      # 13. Publish a GitHub Release
+      # 13. Write release notes to a temp file, then publish GitHub Release
+      #
+      #     Using --notes-file avoids embedding a multi-line heredoc with
+      #     backticks and ${{ }} expressions directly inside a shell argument,
+      #     which breaks YAML parsing.
       # -----------------------------------------------------------------------
+      - name: Write release notes
+        if: steps.check.outputs.needs_update == 'true'
+        env:
+          NEW_APP:      ${{ steps.appver.outputs.new_app_version }}
+          OLD_APP:      ${{ steps.appver.outputs.current_app_version }}
+          INTER:        ${{ steps.resolve.outputs.target_version }}
+          CURRENT_INTER: ${{ steps.current.outputs.current_version }}
+          REPO_URL:     ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          cat > /tmp/release-notes.md << 'NOTES_EOF'
+          ## What changed
+
+          Updated bundled Inter variable font to **${INTER}** (was `${CURRENT_INTER}`).
+
+          | | |
+          |---|---|
+          | **App version** | `${NEW_APP}` (was `${OLD_APP}`) |
+          | **Bundled Inter** | [${INTER}](https://github.com/rsms/inter/releases/tag/${INTER}) |
+
+          ### Files updated
+          - `fonts/Inter.var.woff2`
+          - `fonts/InterItalic.var.woff2`
+          - `fonts/inter-version.txt`
+          - `appinfo/info.xml`
+          - `CHANGELOG.md`
+          - `css/inter-font.css`
+
+          ---
+          _Released automatically by the [Update Inter Fonts](${REPO_URL}/actions/workflows/update-inter-fonts.yml) workflow._
+          NOTES_EOF
+
+          # Expand env variables inside the notes file
+          envsubst < /tmp/release-notes.md > /tmp/release-notes-expanded.md
+
       - name: Publish GitHub Release
         if: steps.check.outputs.needs_update == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NEW_APP: ${{ steps.appver.outputs.new_app_version }}
-          OLD_APP: ${{ steps.appver.outputs.current_app_version }}
-          INTER: ${{ steps.resolve.outputs.target_version }}
+          NEW_APP:  ${{ steps.appver.outputs.new_app_version }}
         run: |
           gh release create "v${NEW_APP}" \
             --title "Inter Fonts ${NEW_APP}" \
-            --notes "## What changed
-
-Updated bundled Inter variable font from \`${{ steps.current.outputs.current_version }}\` to **${INTER}**.
-
-| | |
-|---|---|
-| **App version** | \`${NEW_APP}\` (was \`${OLD_APP}\`) |
-| **Bundled Inter** | [${INTER}](https://github.com/rsms/inter/releases/tag/${INTER}) |
-
-### Files updated
-- \`fonts/Inter.var.woff2\`
-- \`fonts/InterItalic.var.woff2\`
-- \`fonts/inter-version.txt\`
-- \`appinfo/info.xml\`
-- \`CHANGELOG.md\`
-- \`css/inter-font.css\`
-
----
-_Released automatically by the [Update Inter Fonts](${{ github.server_url }}/${{ github.repository }}/actions/workflows/update-inter-fonts.yml) workflow._"
+            --notes-file /tmp/release-notes-expanded.md
