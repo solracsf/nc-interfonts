@@ -12,10 +12,17 @@ declare(strict_types=1);
  * ---------
  *
  * interfonts.CSS.stylesheet
- *   GET /css
+ *   GET /stylesheet
  *   Returns text/css with the @font-face declarations.
  *   URLs inside @font-face point to the font routes below.
- *   Injected globally via Util::addStyle() in BeforeTemplateRenderedListener.
+ *   Injected globally via Util::addHeader() in BeforeTemplateRenderedListener.
+ *
+ *   NOTE: The URL was intentionally changed from /css to /stylesheet.
+ *   The app ships a real css/ directory on disk.  Apache and nginx both
+ *   resolve a physical directory before the index.php rewrite rule fires,
+ *   so GET /apps/interfonts/css was served as a directory listing (403/404)
+ *   instead of reaching this controller.  Using /stylesheet avoids any
+ *   name collision with files or directories that exist in the app tree.
  *
  * interfonts.Font.serve
  *   GET /font/{filename}
@@ -26,7 +33,7 @@ return [
     'routes' => [
         [
             'name' => 'CSS#stylesheet',
-            'url'  => '/css',
+            'url'  => '/stylesheet',
             'verb' => 'GET',
         ],
         [
