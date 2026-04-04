@@ -2,6 +2,7 @@
 <info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
       xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
     <id>interfonts</id>
+    <namespace>InterFonts</namespace>
     <name>Inter Fonts</name>
     <summary>Replaces all Nextcloud interface fonts with the Inter typeface</summary>
     <description><![CDATA[
