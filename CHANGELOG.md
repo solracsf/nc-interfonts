@@ -1,4 +1,19 @@
 # Changelog
+
+## 1.2.1 — 2026-04-04
+
+### Fixed
+- `@font-face` blocks are now emitted as an inline `<style>` tag by the
+  listener with literal URL tokens, instead of residing in the static CSS
+  file. The CSS spec forbids `var()` inside `url()` (CSSWG issue #794), so
+  the previous `url(var(--inter-font-url, …))` pattern was silently ignored
+  by every browser, preventing the font from ever loading.
+- Removed broken relative path fallback `../fonts/Inter.var.woff2` from
+  `inter-font.css` — Nextcloud serves CSS through a versioned asset pipeline
+  path, making relative font paths resolve to the wrong location.
+- `css/inter-font.css` now contains only font-family application rules;
+  `@font-face` registration is fully handled in the inline block.
+
 ## 1.2.0 - 2026-04-04
 
 ### Changed
