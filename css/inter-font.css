@@ -1,0 +1,115 @@
+/**
+ * SPDX-FileCopyrightText: 2026 Inter Fonts App Contributors
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * Inter is licensed under the SIL Open Font License 1.1
+ * Copyright (c) 2016-2024 The Inter Project Authors (https://github.com/rsms/inter)
+ *
+ * Font files are served from this app's /fonts/ directory only.
+ * No external hosts, CDNs, or remote font services are contacted.
+ */
+
+/* 1. Inter variable font — upright axis (wght 100-900) */
+@font-face {
+    font-family: "Inter";
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url("../fonts/Inter.var.woff2") format("woff2");
+}
+
+/* 2. Inter variable font — italic axis (wght 100-900) */
+@font-face {
+    font-family: "Inter";
+    font-style: italic;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url("../fonts/InterItalic.var.woff2") format("woff2");
+}
+
+/* 3. Override the Nextcloud CSS font variable */
+:root {
+    --font-face: "Inter", -apple-system, BlinkMacSystemFont,
+                 "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell,
+                 "Helvetica Neue", Arial, sans-serif,
+                 "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol" !important;
+}
+
+/* 4. Global catch-all */
+html,
+body {
+    font-family: "Inter", -apple-system, BlinkMacSystemFont,
+                 "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell,
+                 "Helvetica Neue", Arial, sans-serif !important;
+}
+
+/* Form controls */
+input,
+button,
+select,
+textarea,
+optgroup,
+option {
+    font-family: "Inter", -apple-system, BlinkMacSystemFont,
+                 "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell,
+                 "Helvetica Neue", Arial, sans-serif !important;
+}
+
+/* Nextcloud UI areas */
+#app-navigation,
+#app-navigation-vue,
+#app-content,
+#app-content-vue,
+#app-sidebar,
+#app-sidebar-vue,
+.modal-container,
+.modal-wrapper,
+.popover,
+.popover__inner,
+.tooltip,
+.toastify,
+#header,
+.header-left,
+.header-right,
+.header-menu,
+.body-login-container,
+#body-login,
+.guest-box,
+.update,
+.nc-chip,
+.breadcrumb,
+.breadcrumb__crumb,
+.file-picker,
+.filepicker,
+.sharing-entry,
+.action-button,
+.action-input,
+.action-link,
+.action-text,
+.empty-content,
+.emptycontent,
+table,
+th,
+td {
+    font-family: "Inter", -apple-system, BlinkMacSystemFont,
+                 "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell,
+                 "Helvetica Neue", Arial, sans-serif !important;
+}
+
+/* 5. Optical sizing for headings */
+h1, h2, h3, h4, h5, h6 {
+    font-optical-sizing: auto;
+    font-variation-settings: "opsz" 32;
+}
+
+/* 6. Tabular numerals in data-heavy contexts */
+.files-list,
+.files-list__row,
+.files-filestable,
+.files-filestable td,
+.filesize,
+time,
+.modified,
+.date {
+    font-variant-numeric: tabular-nums;
+}

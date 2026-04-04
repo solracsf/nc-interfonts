@@ -1,0 +1,19 @@
+# Compiled assets
+/js/*.js.map
+/css/*.css.map
+
+# Node / build tools
+node_modules/
+npm-debug.log
+
+# Font binary files — download separately (see README.md)
+fonts/*.woff
+fonts/*.woff2
+fonts/*.ttf
+fonts/*.otf
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
