@@ -11,13 +11,14 @@ Switches every font in the Nextcloud interface to **Inter**, a highly-legible
 typeface designed specifically for computer screens by Rasmus Andersson.
 
 - Zero external requests — the Inter variable font is fully self-hosted inside this app
-- Covers all weights (100-900) from a single WOFF2 variable-font file per axis
+- Covers all weights (100–900) from a single WOFF2 variable-font file per axis
+- Works correctly in sub-directory installs via runtime URL generation
 - Works across the entire Nextcloud UI: navigation, file lists, modals, settings, and more
 - Overrides the Nextcloud CSS font variable for deep integration
 
-The font is licensed under the SIL Open Font License 1.1.
+The font is licensed under the [SIL Open Font License 1.1](https://scripts.sil.org/OFL).
     ]]></description>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <licence>AGPL-3.0-or-later</licence>
     <author homepage="https://github.com/solracsf">solracsf</author>
     <category>customization</category>

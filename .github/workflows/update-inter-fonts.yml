@@ -1,38 +1,34 @@
 # .github/workflows/update-inter-fonts.yml
 #
-# Watches for new releases of rsms/inter via the "watch" event from a
-# repository_dispatch trigger OR runs on a weekly schedule as a safety net.
-# When a newer version is detected it:
-#   1. Downloads the official Inter release ZIP from rsms/inter
-#   2. Extracts the two variable WOFF2 files (roman + italic)
-#   3. Commits them to the repository under fonts/
-#   4. Updates the version badge / comment in css/inter-font.css
-#   5. Opens a Pull Request so the change is reviewed before merging
+# Monitors rsms/inter for new releases via a weekly schedule poll.
+# When a newer Inter version is detected it:
+#   1. Downloads the official Inter release ZIP
+#   2. Extracts Inter[wght].woff2 and Inter-Italic[wght].woff2
+#   3. Bumps the app minor version in appinfo/info.xml and CHANGELOG.md
+#   4. Updates the bundled-version comment in css/inter-font.css
+#   5. Commits everything directly to main
+#   6. Creates and pushes a Git tag for the new app version
+#   7. Publishes a GitHub Release with release notes
 #
 # Triggers
 # --------
-# - schedule        : weekly poll (Sunday 02:00 UTC) — catches releases that
-#                     didn’t fire a webhook we can listen to on a foreign repo
-# - workflow_dispatch: manual run with an optional version override
+# - schedule        : weekly poll every Sunday 02:00 UTC
+# - workflow_dispatch: manual run with optional version override
 
 name: Update Inter Fonts
 
 on:
   schedule:
-    # Every Sunday at 02:00 UTC
     - cron: "0 2 * * 0"
   workflow_dispatch:
     inputs:
       force_version:
-        description: >
-          Pin a specific Inter release tag to download, e.g. "v4.1".
-          Leave empty to auto-detect the latest release.
+        description: 'Force a specific Inter tag, e.g. "v4.2". Leave empty for latest.'
         required: false
         default: ""
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   update-fonts:
@@ -41,17 +37,16 @@ jobs:
 
     steps:
       # -----------------------------------------------------------------------
-      # 1. Checkout repository
+      # 1. Checkout with full history so we can commit & tag
       # -----------------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       # -----------------------------------------------------------------------
-      # 2. Resolve the target Inter version
-      #    - If workflow_dispatch supplied force_version, use that.
-      #    - Otherwise query the GitHub API for the latest release tag.
+      # 2. Resolve target Inter version
       # -----------------------------------------------------------------------
       - name: Resolve target Inter version
         id: resolve
@@ -60,25 +55,25 @@ jobs:
         run: |
           if [[ -n "${{ inputs.force_version }}" ]]; then
             TARGET="${{ inputs.force_version }}"
-            echo "Using forced version: $TARGET"
           else
             TARGET=$(gh release view --repo rsms/inter --json tagName -q '.tagName')
-            echo "Latest upstream version: $TARGET"
           fi
 
-          # Sanitise: must match vX.Y or vX.Y.Z
           if ! echo "$TARGET" | grep -qE '^v[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
             echo "ERROR: unexpected version format: $TARGET" >&2
             exit 1
           fi
 
+          echo "Resolved Inter version: $TARGET"
           echo "target_version=$TARGET" >> "$GITHUB_OUTPUT"
 
+          # Also expose a clean numeric string, e.g. "4.1"
+          echo "target_version_num=${TARGET#v}" >> "$GITHUB_OUTPUT"
+
       # -----------------------------------------------------------------------
-      # 3. Read the version that is currently committed in this repo
-      #    (stored in a one-line file fonts/inter-version.txt)
+      # 3. Read current committed Inter version
       # -----------------------------------------------------------------------
-      - name: Read currently committed Inter version
+      - name: Read current Inter version
         id: current
         run: |
           if [[ -f fonts/inter-version.txt ]]; then
@@ -106,66 +101,79 @@ jobs:
           fi
 
       # -----------------------------------------------------------------------
-      # 5. Download & extract the Inter release ZIP
+      # 5. Compute new app version (bump minor component)
+      #
+      #    App version follows: <major>.<minor>.<patch>
+      #    On each font update we bump <minor> and reset <patch> to 0.
+      #    Example: 1.0.0 → 1.1.0 → 1.2.0
+      # -----------------------------------------------------------------------
+      - name: Compute new app version
+        id: appver
+        if: steps.check.outputs.needs_update == 'true'
+        run: |
+          CURRENT_APP=$(grep -oP '(?<=<version>)[^<]+' appinfo/info.xml | tr -d '[:space:]')
+          MAJOR=$(echo "$CURRENT_APP" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT_APP" | cut -d. -f2)
+          PATCH=$(echo "$CURRENT_APP" | cut -d. -f3)
+
+          NEW_MINOR=$(( MINOR + 1 ))
+          NEW_APP_VERSION="${MAJOR}.${NEW_MINOR}.0"
+
+          echo "App version: $CURRENT_APP → $NEW_APP_VERSION"
+          echo "current_app_version=$CURRENT_APP"     >> "$GITHUB_OUTPUT"
+          echo "new_app_version=$NEW_APP_VERSION"     >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------------
+      # 6. Download Inter release ZIP
       # -----------------------------------------------------------------------
       - name: Download Inter release ZIP
         if: steps.check.outputs.needs_update == 'true'
         env:
           TARGET: ${{ steps.resolve.outputs.target_version }}
+          VERSION_NUM: ${{ steps.resolve.outputs.target_version_num }}
         run: |
-          # Strip leading 'v' for the filename, e.g. v4.1 -> 4.1
-          VERSION_NUM="${TARGET#v}"
           ZIP_URL="https://github.com/rsms/inter/releases/download/${TARGET}/Inter-${VERSION_NUM}.zip"
-          echo "Downloading $ZIP_URL"
+          echo "Downloading: $ZIP_URL"
           curl -fsSL "$ZIP_URL" -o /tmp/inter.zip
-          echo "Download complete: $(du -h /tmp/inter.zip | cut -f1)"
+          echo "Downloaded: $(du -h /tmp/inter.zip | cut -f1)"
 
       # -----------------------------------------------------------------------
-      # 6. Extract only the two variable WOFF2 files we need
+      # 7. Extract variable WOFF2 files
       #
-      #    The Inter ZIP layout (v4.x):
-      #      Inter-<version>/
-      #        extras/
-      #          variable/
-      #            Inter[wght].woff2          <- roman variable font
-      #            Inter-Italic[wght].woff2   <- italic variable font
-      #        ... (many other files)
+      #    Inter ZIP layout (v4.x):
+      #      Inter-X.Y/extras/variable/Inter[wght].woff2
+      #      Inter-X.Y/extras/variable/Inter-Italic[wght].woff2
       #
-      #    We locate them by pattern rather than hardcoded path so the
-      #    workflow survives minor ZIP layout changes in future releases.
+      #    We use a pattern match then fall back to a full extract + find
+      #    to survive any future ZIP layout changes.
       # -----------------------------------------------------------------------
       - name: Extract variable WOFF2 files
         if: steps.check.outputs.needs_update == 'true'
         run: |
-          mkdir -p /tmp/inter_extracted
+          mkdir -p /tmp/inter_extracted fonts
+
           unzip -o /tmp/inter.zip \
             '*/extras/variable/Inter[[]wght[]].woff2' \
             '*/extras/variable/Inter-Italic[[]wght[]].woff2' \
             -d /tmp/inter_extracted || true
 
-          # Fallback: if the above path pattern didn’t match, try a broader
-          # search inside the ZIP for any file whose name matches the pattern.
-          ROMAN=$(find /tmp/inter_extracted -name 'Inter\[wght\].woff2' | head -1)
-          ITALIC=$(find /tmp/inter_extracted -name 'Inter-Italic\[wght\].woff2' | head -1)
+          ROMAN=$(find /tmp/inter_extracted -name 'Inter[wght].woff2' | head -1)
+          ITALIC=$(find /tmp/inter_extracted -name 'Inter-Italic[wght].woff2' | head -1)
 
           if [[ -z "$ROMAN" || -z "$ITALIC" ]]; then
-            echo "Primary path patterns not found — falling back to name search in ZIP"
-            # List all woff2 files in ZIP and extract by exact name match
+            echo "Targeted extract failed — falling back to full ZIP extraction"
             unzip -o /tmp/inter.zip -d /tmp/inter_extracted 2>/dev/null || true
-            ROMAN=$(find /tmp/inter_extracted -name 'Inter\[wght\].woff2' | head -1)
-            ITALIC=$(find /tmp/inter_extracted -name 'Inter-Italic\[wght\].woff2' | head -1)
+            ROMAN=$(find /tmp/inter_extracted -name 'Inter[wght].woff2' | head -1)
+            ITALIC=$(find /tmp/inter_extracted -name 'Inter-Italic[wght].woff2' | head -1)
           fi
 
           if [[ -z "$ROMAN" ]]; then
-            echo "ERROR: could not find Inter[wght].woff2 in the release ZIP" >&2
-            echo "Files in ZIP:"
+            echo "ERROR: Inter[wght].woff2 not found in ZIP" >&2
             unzip -l /tmp/inter.zip | grep -i woff2
             exit 1
           fi
-
           if [[ -z "$ITALIC" ]]; then
-            echo "ERROR: could not find Inter-Italic[wght].woff2 in the release ZIP" >&2
-            echo "Files in ZIP:"
+            echo "ERROR: Inter-Italic[wght].woff2 not found in ZIP" >&2
             unzip -l /tmp/inter.zip | grep -i woff2
             exit 1
           fi
@@ -173,88 +181,121 @@ jobs:
           echo "Roman  : $ROMAN ($(du -h "$ROMAN" | cut -f1))"
           echo "Italic : $ITALIC ($(du -h "$ITALIC" | cut -f1))"
 
-          # Copy into repo fonts/ directory with stable names
-          mkdir -p fonts
           cp "$ROMAN"  fonts/Inter.var.woff2
           cp "$ITALIC" fonts/InterItalic.var.woff2
-
-          # Record the version so future runs can diff against it
           echo "${{ steps.resolve.outputs.target_version }}" > fonts/inter-version.txt
 
-          echo "roman_path=fonts/Inter.var.woff2"   >> "$GITHUB_ENV"
-          echo "italic_path=fonts/InterItalic.var.woff2" >> "$GITHUB_ENV"
-
       # -----------------------------------------------------------------------
-      # 7. Update the version comment in css/inter-font.css
+      # 8. Bump app version in appinfo/info.xml
       # -----------------------------------------------------------------------
-      - name: Update version comment in CSS
+      - name: Bump app version in info.xml
         if: steps.check.outputs.needs_update == 'true'
         env:
-          TARGET: ${{ steps.resolve.outputs.target_version }}
+          OLD: ${{ steps.appver.outputs.current_app_version }}
+          NEW: ${{ steps.appver.outputs.new_app_version }}
         run: |
-          # Replace the copyright year/version line so reviewers can see
-          # exactly which Inter release is bundled.
-          sed -i \
-            "s|Copyright (c) 2016-[0-9]* The Inter Project|Copyright (c) 2016-$(date +%Y) The Inter Project|g" \
-            css/inter-font.css
+          sed -i "s|<version>${OLD}</version>|<version>${NEW}</version>|" appinfo/info.xml
+          echo "info.xml version: $OLD → $NEW"
 
-          # Append or update an "Inter version" comment near the top
+      # -----------------------------------------------------------------------
+      # 9. Update CHANGELOG.md — prepend a new entry
+      # -----------------------------------------------------------------------
+      - name: Update CHANGELOG.md
+        if: steps.check.outputs.needs_update == 'true'
+        env:
+          NEW_APP: ${{ steps.appver.outputs.new_app_version }}
+          INTER: ${{ steps.resolve.outputs.target_version }}
+          TODAY: ${{ github.run_started_at }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          ENTRY="## ${NEW_APP} — ${DATE}\n\n### Changed\n- Updated bundled Inter font to ${INTER}.\n  Source: https://github.com/rsms/inter/releases/tag/${INTER}\n"
+          # Prepend after the first line (# Changelog header)
+          sed -i "1a\\\n${ENTRY}" CHANGELOG.md
+
+      # -----------------------------------------------------------------------
+      # 10. Update bundled-version comment in css/inter-font.css
+      # -----------------------------------------------------------------------
+      - name: Update CSS version comment
+        if: steps.check.outputs.needs_update == 'true'
+        env:
+          INTER: ${{ steps.resolve.outputs.target_version }}
+        run: |
+          # Update copyright year
+          sed -i "s|Copyright (c) 2016-[0-9]\{4\} The Inter Project|Copyright (c) 2016-$(date +%Y) The Inter Project|g" css/inter-font.css
+
+          # Update or insert bundled-version comment
           if grep -q 'Bundled Inter version:' css/inter-font.css; then
-            sed -i "s|Bundled Inter version:.*|Bundled Inter version: $TARGET|g" css/inter-font.css
+            sed -i "s|Bundled Inter version:.*|Bundled Inter version: ${INTER}|g" css/inter-font.css
           else
-            sed -i "1s|^|/* Bundled Inter version: $TARGET */\n|" css/inter-font.css
+            sed -i "1s|^|/* Bundled Inter version: ${INTER} */\n|" css/inter-font.css
           fi
 
       # -----------------------------------------------------------------------
-      # 8. Create a Pull Request with the updated font files
-      #    Uses the official peter-evans/create-pull-request action which
-      #    handles branch creation, commit, and PR opening atomically.
+      # 11. Commit all changes directly to main
       # -----------------------------------------------------------------------
-      - name: Create Pull Request
+      - name: Commit updated files
         if: steps.check.outputs.needs_update == 'true'
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          branch: "chore/update-inter-${{ steps.resolve.outputs.target_version }}"
-          delete-branch: true
-          commit-message: |
-            chore(fonts): update Inter to ${{ steps.resolve.outputs.target_version }}
+        env:
+          NEW_APP: ${{ steps.appver.outputs.new_app_version }}
+          INTER: ${{ steps.resolve.outputs.target_version }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-            - Replace fonts/Inter.var.woff2
-            - Replace fonts/InterItalic.var.woff2
-            - Update fonts/inter-version.txt
-            - Update version comment in css/inter-font.css
+          git add \
+            fonts/Inter.var.woff2 \
+            fonts/InterItalic.var.woff2 \
+            fonts/inter-version.txt \
+            appinfo/info.xml \
+            CHANGELOG.md \
+            css/inter-font.css
 
-            Source: https://github.com/rsms/inter/releases/tag/${{ steps.resolve.outputs.target_version }}
-          title: "chore(fonts): update Inter to ${{ steps.resolve.outputs.target_version }}"
-          body: |
-            ## Inter font update
+          git commit -m "chore(release): bump app to ${NEW_APP}, update Inter font to ${INTER}"
+          git push origin main
 
-            This PR was opened automatically by the **Update Inter Fonts** workflow.
+      # -----------------------------------------------------------------------
+      # 12. Create and push a Git tag for the new app version
+      # -----------------------------------------------------------------------
+      - name: Tag new app version
+        if: steps.check.outputs.needs_update == 'true'
+        env:
+          NEW_APP: ${{ steps.appver.outputs.new_app_version }}
+          INTER: ${{ steps.resolve.outputs.target_version }}
+        run: |
+          TAG="v${NEW_APP}"
+          git tag -a "$TAG" -m "Release ${TAG} — bundles Inter font ${INTER}"
+          git push origin "$TAG"
+          echo "Pushed tag: $TAG"
 
-            | | |
-            |---|---|
-            | **Previous version** | `${{ steps.current.outputs.current_version }}` |
-            | **New version** | `${{ steps.resolve.outputs.target_version }}` |
-            | **Upstream release** | https://github.com/rsms/inter/releases/tag/${{ steps.resolve.outputs.target_version }} |
-            | **Triggered by** | `${{ github.event_name }}` |
+      # -----------------------------------------------------------------------
+      # 13. Publish a GitHub Release
+      # -----------------------------------------------------------------------
+      - name: Publish GitHub Release
+        if: steps.check.outputs.needs_update == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_APP: ${{ steps.appver.outputs.new_app_version }}
+          OLD_APP: ${{ steps.appver.outputs.current_app_version }}
+          INTER: ${{ steps.resolve.outputs.target_version }}
+        run: |
+          gh release create "v${NEW_APP}" \
+            --title "Inter Fonts ${NEW_APP}" \
+            --notes "## What changed
 
-            ### Files changed
-            - `fonts/Inter.var.woff2` — updated variable font (roman)
-            - `fonts/InterItalic.var.woff2` — updated variable font (italic)
-            - `fonts/inter-version.txt` — version pin file
-            - `css/inter-font.css` — updated version comment
+Updated bundled Inter variable font from \`${{ steps.current.outputs.current_version }}\` to **${INTER}**.
 
-            ### Review checklist
-            - [ ] Spot-check the woff2 files render correctly in a browser
-            - [ ] Enable the Nextcloud app on a test instance
-            - [ ] Merge and tag a new app release if all looks good
+| | |
+|---|---|
+| **App version** | \`${NEW_APP}\` (was \`${OLD_APP}\`) |
+| **Bundled Inter** | [${INTER}](https://github.com/rsms/inter/releases/tag/${INTER}) |
 
-            ---
-            _This PR was created automatically. To run this workflow manually or
-            force a specific version, use the **Actions → Update Inter Fonts →
-            Run workflow** button._
-          labels: |
-            dependencies
-            fonts
-          draft: false
+### Files updated
+- \`fonts/Inter.var.woff2\`
+- \`fonts/InterItalic.var.woff2\`
+- \`fonts/inter-version.txt\`
+- \`appinfo/info.xml\`
+- \`CHANGELOG.md\`
+- \`css/inter-font.css\`
+
+---
+_Released automatically by the [Update Inter Fonts](${{ github.server_url }}/${{ github.repository }}/actions/workflows/update-inter-fonts.yml) workflow._"

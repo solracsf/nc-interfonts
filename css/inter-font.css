@@ -5,29 +5,61 @@
  * Inter is licensed under the SIL Open Font License 1.1
  * Copyright (c) 2016-2024 The Inter Project Authors (https://github.com/rsms/inter)
  *
- * Font files are served from this app's /fonts/ directory only.
- * No external hosts, CDNs, or remote font services are contacted.
+ * Bundled Inter version: v4.1
+ *
+ * Both @font-face declarations use the absolute font URLs that are injected
+ * at runtime into the :root { --inter-font-url } and
+ * --inter-italic-font-url CSS custom properties by
+ * BeforeTemplateRenderedListener via IURLGenerator::linkTo().
+ *
+ * This makes the paths correct regardless of:
+ *   - Nextcloud being installed in a sub-directory  (e.g. /nextcloud/)
+ *   - overwrite.cli.url being configured
+ *   - Any URL rewriting or reverse-proxy prefix
+ *
+ * The url('...') literals below are kept as a static fallback for contexts
+ * where the inline :root block has not yet been parsed (e.g. print preview).
+ * They resolve relative to this CSS file location:
+ *   /apps/interfonts/css/inter-font.css
+ *     → /apps/interfonts/fonts/Inter.var.woff2
+ *     → /apps/interfonts/fonts/InterItalic.var.woff2
+ *
+ * No external hosts, CDNs, or remote services are contacted at any point.
  */
 
-/* 1. Inter variable font — upright axis (wght 100-900) */
+/* =========================================================================
+   1. Inter variable font — upright axis (wght 100–900)
+   ======================================================================= */
 @font-face {
     font-family: "Inter";
     font-style: normal;
     font-weight: 100 900;
     font-display: swap;
-    src: url("../fonts/Inter.var.woff2") format("woff2");
+    /* Primary: absolute URL injected by IURLGenerator at render time */
+    src: url(var(--inter-font-url, "../fonts/Inter.var.woff2")) format("woff2"),
+         url("../fonts/Inter.var.woff2") format("woff2");
 }
 
-/* 2. Inter variable font — italic axis (wght 100-900) */
+/* =========================================================================
+   2. Inter variable font — italic axis (wght 100–900)
+   ======================================================================= */
 @font-face {
     font-family: "Inter";
     font-style: italic;
     font-weight: 100 900;
     font-display: swap;
-    src: url("../fonts/InterItalic.var.woff2") format("woff2");
+    /* Primary: absolute URL injected by IURLGenerator at render time */
+    src: url(var(--inter-italic-font-url, "../fonts/InterItalic.var.woff2")) format("woff2"),
+         url("../fonts/InterItalic.var.woff2") format("woff2");
 }
 
-/* 3. Override the Nextcloud CSS font variable */
+/* =========================================================================
+   3. --font-face CSS variable override
+
+   The inline <style id="inter-fonts-vars"> block injected by the listener
+   already sets --font-face before this file is parsed, so this rule acts
+   as a belt-and-suspenders fallback for edge cases (e.g. cached pages).
+   ======================================================================= */
 :root {
     --font-face: "Inter", -apple-system, BlinkMacSystemFont,
                  "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell,
@@ -35,27 +67,31 @@
                  "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol" !important;
 }
 
-/* 4. Global catch-all */
+/* =========================================================================
+   4. Global application — html / body
+   ======================================================================= */
 html,
 body {
-    font-family: "Inter", -apple-system, BlinkMacSystemFont,
-                 "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell,
-                 "Helvetica Neue", Arial, sans-serif !important;
+    font-family: var(--font-face) !important;
 }
 
-/* Form controls */
+/* =========================================================================
+   5. Form controls
+   Nextcloud resets font-family on these elements explicitly, so we
+   override them directly rather than relying on inheritance.
+   ======================================================================= */
 input,
 button,
 select,
 textarea,
 optgroup,
 option {
-    font-family: "Inter", -apple-system, BlinkMacSystemFont,
-                 "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell,
-                 "Helvetica Neue", Arial, sans-serif !important;
+    font-family: var(--font-face) !important;
 }
 
-/* Nextcloud UI areas */
+/* =========================================================================
+   6. Nextcloud UI surface — navigation, content, modals, header, login
+   ======================================================================= */
 #app-navigation,
 #app-navigation-vue,
 #app-content,
@@ -91,18 +127,20 @@ option {
 table,
 th,
 td {
-    font-family: "Inter", -apple-system, BlinkMacSystemFont,
-                 "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell,
-                 "Helvetica Neue", Arial, sans-serif !important;
+    font-family: var(--font-face) !important;
 }
 
-/* 5. Optical sizing for headings */
+/* =========================================================================
+   7. Optical sizing — activates Inter's built-in per-size adjustments
+   ======================================================================= */
 h1, h2, h3, h4, h5, h6 {
     font-optical-sizing: auto;
     font-variation-settings: "opsz" 32;
 }
 
-/* 6. Tabular numerals in data-heavy contexts */
+/* =========================================================================
+   8. Tabular numerals in data-dense contexts (file sizes, dates, counters)
+   ======================================================================= */
 .files-list,
 .files-list__row,
 .files-filestable,

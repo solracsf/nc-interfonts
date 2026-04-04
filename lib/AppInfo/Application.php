@@ -19,9 +19,12 @@ use OCP\AppFramework\Http\Events\BeforeTemplateRenderedEvent;
 /**
  * Main application class for the Inter Fonts app.
  *
- * Registers a page-render event listener so that the Inter font stylesheet
- * is injected into every Nextcloud HTML response — login page, user pages,
- * admin pages, and public shares alike.
+ * Registers a BeforeTemplateRenderedEvent listener that injects the Inter
+ * font stylesheet and the runtime-generated absolute font-file URLs into
+ * every Nextcloud HTML response.
+ *
+ * BeforeTemplateRenderedListener depends on IURLGenerator which is resolved
+ * automatically by the Nextcloud DI container.
  */
 class Application extends App implements IBootstrap {
 
@@ -32,8 +35,8 @@ class Application extends App implements IBootstrap {
     }
 
     /**
-     * Register event listeners during the registration phase.
-     * No container resolution is permitted here.
+     * Register services and event listeners.
+     * Container resolution is NOT available in this method.
      */
     public function register(IRegistrationContext $context): void {
         $context->registerEventListener(
@@ -43,8 +46,8 @@ class Application extends App implements IBootstrap {
     }
 
     /**
-     * Execute boot-time logic after the container is fully assembled.
-     * No actions are required at boot time for this app.
+     * Boot-time logic after the container is fully assembled.
+     * No additional actions are required for this app.
      */
     public function boot(IBootContext $context): void {
         // Intentionally empty — all behaviour is driven by the event listener.
