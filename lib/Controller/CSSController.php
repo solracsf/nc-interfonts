@@ -22,28 +22,13 @@ use OCP\IURLGenerator;
 /**
  * Serves the Inter font @font-face CSS with runtime-resolved font URLs.
  *
- * This controller exists because @font-face src requires a literal URL token;
- * the CSS spec forbids var() inside url(). Since Nextcloud serves static CSS
- * files through a versioned asset pipeline at unpredictable paths, relative
- * paths from a static CSS file always resolve incorrectly. Generating the
- * @font-face block here with IURLGenerator::linkToRoute() gives us a stable,
- * sub-directory-safe absolute URL every time.
- *
- * The response is marked public and CSRF-free because it is a static
- * stylesheet loaded before any user session exists (login page, public
- * shares). It contains no user data.
- *
- * Cache-Control: max-age=604800 (7 days) is intentional — the URLs are
- * stable and the content only changes on app upgrade.
- *
- * NOTE: The route URL is /stylesheet, not /css.
- * The app ships a real css/ directory on disk. Apache and nginx resolve a
- * physical directory before the index.php rewrite rule fires, so
- * GET /apps/interfonts/css was served as a directory listing (403/404)
- * rather than reaching this controller. /stylesheet has no on-disk
- * counterpart and therefore always passes through to index.php.
+ * The CSS is intentionally generated here instead of being served as a static
+ * file, because the font URLs must be resolved by Nextcloud's router so they
+ * remain correct across subdirectory installs and reverse proxies.
  */
-class CSSController extends Controller {
+final class CSSController extends Controller {
+
+    private const CACHE_TTL = 31536000;
 
     public function __construct(
         IRequest $request,
@@ -53,10 +38,9 @@ class CSSController extends Controller {
     }
 
     /**
-     * Returns the @font-face CSS block for Inter.
+     * Returns the generated stylesheet.
      *
      * Route: GET /index.php/apps/interfonts/stylesheet
-     * Injected into every page via Util::addHeader() in the listener.
      */
     #[PublicPage]
     #[NoCSRFRequired]
@@ -66,31 +50,38 @@ class CSSController extends Controller {
             'interfonts.Font.serve',
             ['filename' => 'Inter.var.woff2']
         );
+
         $italicUrl = $this->urlGenerator->linkToRoute(
             'interfonts.Font.serve',
             ['filename' => 'InterItalic.var.woff2']
         );
 
-        $stack = '"Inter",-apple-system,BlinkMacSystemFont,'
-            . '"Segoe UI",Roboto,Oxygen-Sans,Ubuntu,Cantarell,'
-            . '"Helvetica Neue",Arial,sans-serif,'
-            . '"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol"';
+        $css = $this->buildCss($romanUrl, $italicUrl);
 
-        // Encode any single-quotes in the URL (defensive; linkToRoute
-        // should never produce them, but belt-and-suspenders).
-        $romanUrl  = str_replace("'", '%27', $romanUrl);
-        $italicUrl = str_replace("'", '%27', $italicUrl);
+        return new DataDisplayResponse($css, Http::STATUS_OK, [
+            'Content-Type' => 'text/css; charset=utf-8',
+            'Cache-Control' => 'public, max-age=' . self::CACHE_TTL . ', immutable',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
 
-        $css = <<<CSS
-/* Inter Fonts for Nextcloud — generated stylesheet */
-/* Font files are served from FontController, no external requests are made. */
+    private function buildCss(string $romanUrl, string $italicUrl): string {
+        $romanCssUrl = $this->cssString($romanUrl);
+        $italicCssUrl = $this->cssString($italicUrl);
+
+        return <<<CSS
+/* Inter Fonts for Nextcloud - generated stylesheet */
+/* Font files are served from FontController. */
 
 @font-face {
     font-family: "Inter";
     font-style: normal;
     font-weight: 100 900;
     font-display: swap;
-    src: url('{$romanUrl}') format('woff2');
+    src:
+        local("Inter Variable"),
+        local("Inter"),
+        url({$romanCssUrl}) format("woff2");
 }
 
 @font-face {
@@ -98,25 +89,30 @@ class CSSController extends Controller {
     font-style: italic;
     font-weight: 100 900;
     font-display: swap;
-    src: url('{$italicUrl}') format('woff2');
+    src:
+        local("Inter Italic"),
+        local("Inter"),
+        url({$italicCssUrl}) format("woff2");
 }
 
 :root {
-    --font-face: {$stack} !important;
+    --font-face: "Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Oxygen-Sans,Ubuntu,Cantarell,"Helvetica Neue",Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol";
+    --font-mono: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+    font-feature-settings: "cv11", "ss01";
 }
 
-html,
-body {
-    font-family: var(--font-face) !important;
+html {
+    font-family: var(--font-face);
 }
 
-input,
+body,
 button,
+input,
 select,
 textarea,
 optgroup,
 option {
-    font-family: var(--font-face) !important;
+    font-family: inherit;
 }
 
 #app-navigation,
@@ -125,12 +121,6 @@ option {
 #app-content-vue,
 #app-sidebar,
 #app-sidebar-vue,
-.modal-container,
-.modal-wrapper,
-.popover,
-.popover__inner,
-.tooltip,
-.toastify,
 #header,
 .header-left,
 .header-right,
@@ -151,13 +141,34 @@ option {
 .action-text,
 .empty-content,
 .emptycontent,
-table, th, td {
-    font-family: var(--font-face) !important;
+.modal-container,
+.modal-wrapper,
+.popover,
+.popover__inner,
+.tooltip,
+.toastify,
+table,
+th,
+td {
+    font-family: var(--font-face);
 }
 
-h1, h2, h3, h4, h5, h6 {
+code,
+pre,
+kbd,
+samp,
+.CodeMirror,
+.monaco-editor {
+    font-family: var(--font-mono);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
     font-optical-sizing: auto;
-    font-variation-settings: "opsz" 32;
 }
 
 .files-list,
@@ -171,13 +182,9 @@ time,
     font-variant-numeric: tabular-nums;
 }
 CSS;
+    }
 
-        $response = new DataDisplayResponse($css, Http::STATUS_OK, [
-            'Content-Type'  => 'text/css; charset=utf-8',
-            'Cache-Control' => 'public, max-age=604800, immutable',
-            'X-Content-Type-Options' => 'nosniff',
-        ]);
-
-        return $response;
+    private function cssString(string $value): string {
+        return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $value) . '"';
     }
 }
