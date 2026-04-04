@@ -3,12 +3,16 @@
 # Monitors rsms/inter for new releases via a weekly schedule poll.
 # When a newer Inter version is detected it:
 #   1. Downloads the official Inter release ZIP
-#   2. Extracts Inter[wght].woff2 and Inter-Italic[wght].woff2
+#   2. Extracts the variable WOFF2 files (roman + italic)
 #   3. Bumps the app minor version in appinfo/info.xml and CHANGELOG.md
 #   4. Updates the bundled-version comment in css/inter-font.css
 #   5. Commits everything directly to main
 #   6. Creates and pushes a Git tag for the new app version
 #   7. Publishes a GitHub Release with release notes
+#
+# Inter v4.x ZIP layout (confirmed):
+#   web/InterVariable.woff2          <- roman variable font
+#   web/InterVariable-Italic.woff2   <- italic variable font
 #
 # Triggers
 # --------
@@ -91,7 +95,7 @@ jobs:
           TARGET="${{ steps.resolve.outputs.target_version }}"
           CURRENT="${{ steps.current.outputs.current_version }}"
           if [[ "$TARGET" == "$CURRENT" ]]; then
-            echo "Already at $TARGET — nothing to do."
+            echo "Already at $TARGET - nothing to do."
             echo "needs_update=false" >> "$GITHUB_OUTPUT"
           else
             echo "Update needed: $CURRENT -> $TARGET"
@@ -131,41 +135,63 @@ jobs:
           curl -fsSL "$ZIP_URL" -o /tmp/inter.zip
           echo "Downloaded: $(du -h /tmp/inter.zip | cut -f1)"
 
+          echo "WOFF2 files in ZIP:"
+          unzip -l /tmp/inter.zip | grep -i '\.woff2' | awk '{print $NF}' | sort
+
       # -----------------------------------------------------------------------
       # 7. Extract variable WOFF2 files
       #
-      #    Inter ZIP layout (v4.x):
-      #      Inter-X.Y/extras/variable/Inter[wght].woff2
-      #      Inter-X.Y/extras/variable/Inter-Italic[wght].woff2
+      # Inter v4.x layout (confirmed):
+      #   web/InterVariable.woff2
+      #   web/InterVariable-Italic.woff2
+      #
+      # The script tries three strategies in order, covering past layouts
+      # (extras/variable/) and any future renames, so the workflow stays
+      # resilient across Inter releases without manual intervention.
       # -----------------------------------------------------------------------
       - name: Extract variable WOFF2 files
         if: steps.check.outputs.needs_update == 'true'
         run: |
           mkdir -p /tmp/inter_extracted fonts
 
+          echo "--- Strategy 1: web/InterVariable*.woff2 (v4.x layout) ---"
           unzip -o /tmp/inter.zip \
-            '*/extras/variable/Inter[[]wght[]].woff2' \
-            '*/extras/variable/Inter-Italic[[]wght[]].woff2' \
+            'web/InterVariable.woff2' \
+            'web/InterVariable-Italic.woff2' \
             -d /tmp/inter_extracted || true
 
-          ROMAN=$(find /tmp/inter_extracted -name 'Inter[wght].woff2' | head -1)
-          ITALIC=$(find /tmp/inter_extracted -name 'Inter-Italic[wght].woff2' | head -1)
+          ROMAN=$(find /tmp/inter_extracted -name 'InterVariable.woff2' | head -1)
+          ITALIC=$(find /tmp/inter_extracted -name 'InterVariable-Italic.woff2' | head -1)
 
           if [[ -z "$ROMAN" || -z "$ITALIC" ]]; then
-            echo "Targeted extract failed — falling back to full ZIP extraction"
+            echo "--- Strategy 2: extras/variable/Inter[wght].woff2 (pre-v4.x layout) ---"
+            unzip -o /tmp/inter.zip \
+              '*/extras/variable/*.woff2' \
+              -d /tmp/inter_extracted || true
+
+            ROMAN=$(find /tmp/inter_extracted/extras/variable -name '*Variable.woff2' ! -name '*Italic*' | head -1)
+            ITALIC=$(find /tmp/inter_extracted/extras/variable -name '*Variable*Italic*.woff2' | head -1)
+          fi
+
+          if [[ -z "$ROMAN" || -z "$ITALIC" ]]; then
+            echo "--- Strategy 3: full extract + broadest name match ---"
             unzip -o /tmp/inter.zip -d /tmp/inter_extracted 2>/dev/null || true
-            ROMAN=$(find /tmp/inter_extracted -name 'Inter[wght].woff2' | head -1)
-            ITALIC=$(find /tmp/inter_extracted -name 'Inter-Italic[wght].woff2' | head -1)
+
+            # Match any variable WOFF2 that is NOT a static weight file
+            ROMAN=$(find /tmp/inter_extracted -name '*.woff2' | grep -i 'variable' | grep -iv 'italic' | grep -iv 'display' | head -1)
+            ITALIC=$(find /tmp/inter_extracted -name '*.woff2' | grep -i 'variable' | grep -i 'italic' | grep -iv 'display' | head -1)
           fi
 
           if [[ -z "$ROMAN" ]]; then
-            echo "ERROR: Inter[wght].woff2 not found in ZIP" >&2
-            unzip -l /tmp/inter.zip | grep -i woff2
+            echo "ERROR: could not locate a roman variable WOFF2 in the ZIP" >&2
+            echo "All WOFF2 files present:"
+            find /tmp/inter_extracted -name '*.woff2' | sort
             exit 1
           fi
           if [[ -z "$ITALIC" ]]; then
-            echo "ERROR: Inter-Italic[wght].woff2 not found in ZIP" >&2
-            unzip -l /tmp/inter.zip | grep -i woff2
+            echo "ERROR: could not locate an italic variable WOFF2 in the ZIP" >&2
+            echo "All WOFF2 files present:"
+            find /tmp/inter_extracted -name '*.woff2' | sort
             exit 1
           fi
 
@@ -189,7 +215,7 @@ jobs:
           echo "info.xml version: $OLD -> $NEW"
 
       # -----------------------------------------------------------------------
-      # 9. Update CHANGELOG.md — prepend a new entry
+      # 9. Update CHANGELOG.md - prepend a new entry
       # -----------------------------------------------------------------------
       - name: Update CHANGELOG.md
         if: steps.check.outputs.needs_update == 'true'
@@ -198,7 +224,7 @@ jobs:
           INTER:   ${{ steps.resolve.outputs.target_version }}
         run: |
           DATE=$(date -u +%Y-%m-%d)
-          ENTRY="## ${NEW_APP} — ${DATE}\n\n### Changed\n- Updated bundled Inter font to ${INTER}.\n  Source: https://github.com/rsms/inter/releases/tag/${INTER}\n"
+          ENTRY="## ${NEW_APP} - ${DATE}\n\n### Changed\n- Updated bundled Inter font to ${INTER}.\n  Source: https://github.com/rsms/inter/releases/tag/${INTER}\n"
           sed -i "1a\\${ENTRY}" CHANGELOG.md
 
       # -----------------------------------------------------------------------
@@ -250,25 +276,22 @@ jobs:
           INTER:   ${{ steps.resolve.outputs.target_version }}
         run: |
           TAG="v${NEW_APP}"
-          git tag -a "$TAG" -m "Release ${TAG} — bundles Inter font ${INTER}"
+          git tag -a "$TAG" -m "Release ${TAG} - bundles Inter font ${INTER}"
           git push origin "$TAG"
           echo "Pushed tag: $TAG"
 
       # -----------------------------------------------------------------------
-      # 13. Write release notes to a temp file, then publish GitHub Release
-      #
-      #     Using --notes-file avoids embedding a multi-line heredoc with
-      #     backticks and ${{ }} expressions directly inside a shell argument,
-      #     which breaks YAML parsing.
+      # 13. Write release notes to file, then publish GitHub Release
+      #     --notes-file avoids YAML parse issues with multi-line strings.
       # -----------------------------------------------------------------------
       - name: Write release notes
         if: steps.check.outputs.needs_update == 'true'
         env:
-          NEW_APP:      ${{ steps.appver.outputs.new_app_version }}
-          OLD_APP:      ${{ steps.appver.outputs.current_app_version }}
-          INTER:        ${{ steps.resolve.outputs.target_version }}
+          NEW_APP:       ${{ steps.appver.outputs.new_app_version }}
+          OLD_APP:       ${{ steps.appver.outputs.current_app_version }}
+          INTER:         ${{ steps.resolve.outputs.target_version }}
           CURRENT_INTER: ${{ steps.current.outputs.current_version }}
-          REPO_URL:     ${{ github.server_url }}/${{ github.repository }}
+          REPO_URL:      ${{ github.server_url }}/${{ github.repository }}
         run: |
           cat > /tmp/release-notes.md << 'NOTES_EOF'
           ## What changed
@@ -292,7 +315,6 @@ jobs:
           _Released automatically by the [Update Inter Fonts](${REPO_URL}/actions/workflows/update-inter-fonts.yml) workflow._
           NOTES_EOF
 
-          # Expand env variables inside the notes file
           envsubst < /tmp/release-notes.md > /tmp/release-notes-expanded.md
 
       - name: Publish GitHub Release
