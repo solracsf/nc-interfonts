@@ -1,0 +1,289 @@
+# .github/workflows/release.yml
+#
+# Publishes a release of the Inter Fonts Nextcloud app directly from the
+# GitHub Actions WebUI (Actions → Publish Release → Run workflow).
+#
+# Inputs
+# ------
+# bump_type   major | minor | patch   Which SemVer component to increment.
+# prerelease  true  | false           Mark the GitHub Release as pre-release.
+#
+# What the workflow does
+# ----------------------
+# 1. Reads the current version from appinfo/info.xml.
+# 2. Increments the requested component (major resets minor+patch,
+#    minor resets patch, patch just increments patch).
+# 3. Updates appinfo/info.xml and CHANGELOG.md with the new version.
+# 4. Commits directly to main.
+# 5. Creates and pushes an annotated Git tag (vX.Y.Z).
+# 6. Publishes a GitHub Release with auto-generated release notes.
+#    The release body also links to the full CHANGELOG entry.
+#
+# Permissions
+# -----------
+# The built-in GITHUB_TOKEN is used for all Git and API operations;
+# no personal access token is needed.
+
+name: Publish Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: "Version bump type"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      prerelease:
+        description: "Mark as pre-release?"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Bump version & publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout with full history so we can commit & tag
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # -----------------------------------------------------------------------
+      # 2. Read current version from appinfo/info.xml
+      # -----------------------------------------------------------------------
+      - name: Read current version
+        id: current
+        run: |
+          CURRENT=$(grep -oP '(?<=<version>)[^<]+' appinfo/info.xml | tr -d '[:space:]')
+
+          if ! echo "$CURRENT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "ERROR: unexpected version format in info.xml: '$CURRENT'" >&2
+            exit 1
+          fi
+
+          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT" | cut -d. -f2)
+          PATCH=$(echo "$CURRENT" | cut -d. -f3)
+
+          echo "Current version : $CURRENT"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "major=$MAJOR"     >> "$GITHUB_OUTPUT"
+          echo "minor=$MINOR"     >> "$GITHUB_OUTPUT"
+          echo "patch=$PATCH"     >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------------
+      # 3. Compute new version according to the requested bump type
+      # -----------------------------------------------------------------------
+      - name: Compute new version
+        id: new
+        env:
+          BUMP:  ${{ inputs.bump_type }}
+          MAJOR: ${{ steps.current.outputs.major }}
+          MINOR: ${{ steps.current.outputs.minor }}
+          PATCH: ${{ steps.current.outputs.patch }}
+        run: |
+          case "$BUMP" in
+            major)
+              NEW_MAJOR=$(( MAJOR + 1 ))
+              NEW_VERSION="${NEW_MAJOR}.0.0"
+              ;;
+            minor)
+              NEW_MINOR=$(( MINOR + 1 ))
+              NEW_VERSION="${MAJOR}.${NEW_MINOR}.0"
+              ;;
+            patch)
+              NEW_PATCH=$(( PATCH + 1 ))
+              NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+              ;;
+            *)
+              echo "ERROR: unknown bump_type '$BUMP'" >&2
+              exit 1
+              ;;
+          esac
+
+          TAG="v${NEW_VERSION}"
+          echo "New version : $NEW_VERSION  (bump: $BUMP)"
+          echo "Tag         : $TAG"
+
+          # Abort if this tag already exists
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "ERROR: tag $TAG already exists. Did you mean a different bump type?" >&2
+            exit 1
+          fi
+
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"             >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------------
+      # 4. Update appinfo/info.xml
+      # -----------------------------------------------------------------------
+      - name: Update appinfo/info.xml
+        env:
+          OLD: ${{ steps.current.outputs.current }}
+          NEW: ${{ steps.new.outputs.version }}
+        run: |
+          sed -i "s|<version>${OLD}</version>|<version>${NEW}</version>|" appinfo/info.xml
+          echo "info.xml: $OLD -> $NEW"
+
+          # Verify the substitution actually happened
+          WRITTEN=$(grep -oP '(?<=<version>)[^<]+' appinfo/info.xml | tr -d '[:space:]')
+          if [[ "$WRITTEN" != "$NEW" ]]; then
+            echo "ERROR: version in info.xml is '$WRITTEN', expected '$NEW'" >&2
+            exit 1
+          fi
+
+      # -----------------------------------------------------------------------
+      # 5. Prepend CHANGELOG.md entry
+      # -----------------------------------------------------------------------
+      - name: Update CHANGELOG.md
+        env:
+          OLD:  ${{ steps.current.outputs.current }}
+          NEW:  ${{ steps.new.outputs.version }}
+          BUMP: ${{ inputs.bump_type }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+
+          case "$BUMP" in
+            major) LABEL="Major release" ;;
+            minor) LABEL="Minor release" ;;
+            patch) LABEL="Patch release" ;;
+          esac
+
+          # Build the new CHANGELOG entry in a temp file
+          cat > /tmp/changelog-entry.md << EOF
+          ## ${NEW} — ${DATE}
+
+          ### ${LABEL}
+          - Version bump from ${OLD} to ${NEW}.
+
+          EOF
+
+          # Prepend the entry after the first line ("# Changelog" heading)
+          head -1 CHANGELOG.md > /tmp/changelog-new.md
+          echo "" >> /tmp/changelog-new.md
+          cat /tmp/changelog-entry.md >> /tmp/changelog-new.md
+          tail -n +2 CHANGELOG.md >> /tmp/changelog-new.md
+          mv /tmp/changelog-new.md CHANGELOG.md
+
+      # -----------------------------------------------------------------------
+      # 6. Commit updated files directly to main
+      # -----------------------------------------------------------------------
+      - name: Commit version bump
+        env:
+          OLD: ${{ steps.current.outputs.current }}
+          NEW: ${{ steps.new.outputs.version }}
+          TAG: ${{ steps.new.outputs.tag }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add appinfo/info.xml CHANGELOG.md
+          git commit -m "chore(release): bump version ${OLD} → ${NEW}"
+          git push origin main
+          echo "Pushed version bump commit to main"
+
+      # -----------------------------------------------------------------------
+      # 7. Create and push an annotated Git tag
+      # -----------------------------------------------------------------------
+      - name: Create and push Git tag
+        env:
+          TAG:  ${{ steps.new.outputs.tag }}
+          NEW:  ${{ steps.new.outputs.version }}
+          BUMP: ${{ inputs.bump_type }}
+        run: |
+          git tag -a "$TAG" \
+            -m "Release ${TAG}" \
+            -m "Bump type : ${BUMP}" \
+            -m "Released  : $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push origin "$TAG"
+          echo "Pushed tag: $TAG"
+
+      # -----------------------------------------------------------------------
+      # 8. Build release notes
+      # -----------------------------------------------------------------------
+      - name: Build release notes
+        id: notes
+        env:
+          OLD:       ${{ steps.current.outputs.current }}
+          NEW:       ${{ steps.new.outputs.version }}
+          TAG:       ${{ steps.new.outputs.tag }}
+          BUMP:      ${{ inputs.bump_type }}
+          REPO_URL:  ${{ github.server_url }}/${{ github.repository }}
+          ACTOR:     ${{ github.actor }}
+        run: |
+          # Read bundled Inter version for the table
+          if [[ -f fonts/inter-version.txt ]]; then
+            INTER=$(cat fonts/inter-version.txt | tr -d '[:space:]')
+          else
+            INTER="unknown"
+          fi
+
+          cat > /tmp/release-notes.md << EOF
+          ## Inter Fonts ${NEW}
+
+          | | |
+          |---|---|
+          | **Version** | \`${NEW}\` (was \`${OLD}\`) |
+          | **Bump type** | ${BUMP} |
+          | **Bundled Inter** | ${INTER} |
+          | **Released by** | [@${ACTOR}](${REPO_URL%/*}/${ACTOR}) |
+
+          ## Installation
+
+          \`\`\`bash
+          TAG=${TAG}
+          curl -fsSL "https://github.com/solracsf/nc-interfonts/archive/refs/tags/\${TAG}.tar.gz" \
+            -o /tmp/interfonts.tar.gz
+          tar -xzf /tmp/interfonts.tar.gz -C /var/www/nextcloud/apps/
+          mv "/var/www/nextcloud/apps/nc-interfonts-\${TAG#v}" \
+             /var/www/nextcloud/apps/interfonts
+          chown -R www-data:www-data /var/www/nextcloud/apps/interfonts/
+          sudo -u www-data php /var/www/nextcloud/occ app:enable interfonts
+          \`\`\`
+
+          See the full [CHANGELOG](${REPO_URL}/blob/${TAG}/CHANGELOG.md) for details.
+
+          ---
+          _Published by the [Publish Release](${REPO_URL}/actions/workflows/release.yml) workflow._
+          EOF
+
+      # -----------------------------------------------------------------------
+      # 9. Publish GitHub Release
+      # -----------------------------------------------------------------------
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN:    ${{ secrets.GITHUB_TOKEN }}
+          TAG:         ${{ steps.new.outputs.tag }}
+          NEW:         ${{ steps.new.outputs.version }}
+          PRERELEASE:  ${{ inputs.prerelease }}
+        run: |
+          PRERELEASE_FLAG=""
+          if [[ "$PRERELEASE" == "true" ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          gh release create "$TAG" \
+            --title "Inter Fonts ${NEW}" \
+            --notes-file /tmp/release-notes.md \
+            --latest \
+            $PRERELEASE_FLAG
+
+          echo "Published: $TAG"
+          echo "URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${TAG}"
