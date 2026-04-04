@@ -24,41 +24,26 @@ inside the app — no CDN, no Google Fonts, no external requests of any kind.
 
 ## Installation
 
-Always install from the **latest release** — it includes the bundled font files.
-Cloning or downloading the repository source directly will not include the
-WOFF2 files (they are added by the automated release workflow).
+Always install from the **[latest release](https://github.com/solracsf/nc-interfonts/releases/latest)** —
+it includes the bundled Inter font files. Cloning or downloading the repository
+source directly will not include the WOFF2 files (they are committed by the
+automated release workflow).
 
 ```bash
-# 1. Download the latest release archive
+# 1. Resolve the latest release tag and download the tarball
+TAG=$(curl -fsSL https://api.github.com/repos/solracsf/nc-interfonts/releases/latest \
+  | grep '"tag_name"' | cut -d '"' -f4)
+
 curl -fsSL \
-  "$(curl -fsSL https://api.github.com/repos/solracsf/nc-interfonts/releases/latest \
-    | grep '"browser_download_url"' | grep '\.tar\.gz' | cut -d '"' -f4)" \
+  "https://github.com/solracsf/nc-interfonts/archive/refs/tags/${TAG}.tar.gz" \
   -o /tmp/interfonts.tar.gz
 
-# -- or download the ZIP --
-curl -fsSL \
-  "$(curl -fsSL https://api.github.com/repos/solracsf/nc-interfonts/releases/latest \
-    | grep '"zipball_url"' | cut -d '"' -f4)" \
-  -o /tmp/interfonts.zip
-```
-
-You can also grab a specific version by tag:
-
-```bash
-# Replace v1.2.0 with the desired tag from the Releases page
-curl -fsSL \
-  https://github.com/solracsf/nc-interfonts/archive/refs/tags/v1.2.0.tar.gz \
-  -o /tmp/interfonts.tar.gz
-```
-
-Then extract and enable:
-
-```bash
 # 2. Extract into the Nextcloud apps directory
 tar -xzf /tmp/interfonts.tar.gz -C /var/www/nextcloud/apps/
 
-# The extracted folder may include the tag in its name — rename it
-mv /var/www/nextcloud/apps/nc-interfonts-* /var/www/nextcloud/apps/interfonts 2>/dev/null || true
+# The extracted folder is named nc-interfonts-<tag> — rename it
+mv "/var/www/nextcloud/apps/nc-interfonts-${TAG#v}" \
+   /var/www/nextcloud/apps/interfonts
 
 # 3. Set correct ownership
 chown -R www-data:www-data /var/www/nextcloud/apps/interfonts/
@@ -67,17 +52,32 @@ chown -R www-data:www-data /var/www/nextcloud/apps/interfonts/
 sudo -u www-data php /var/www/nextcloud/occ app:enable interfonts
 ```
 
-> **Note:** The latest release tag and direct download links are always
-> available on the [Releases page](https://github.com/solracsf/nc-interfonts/releases/latest).
+To pin a specific version, replace the tag resolution step:
+
+```bash
+# Replace v1.2.0 with any tag listed on the Releases page
+TAG=v1.2.0
+
+curl -fsSL \
+  "https://github.com/solracsf/nc-interfonts/archive/refs/tags/${TAG}.tar.gz" \
+  -o /tmp/interfonts.tar.gz
+```
+
+> **Note:** Download links for every release are also listed on the
+> [Releases page](https://github.com/solracsf/nc-interfonts/releases).
 
 ## Upgrading
 
 ```bash
-# Disable the running app first
+# 1. Disable the running app
 sudo -u www-data php /var/www/nextcloud/occ app:disable interfonts
 
-# Download and extract the new release (same steps as Installation above)
-# then re-enable
+# 2. Remove the old version
+rm -rf /var/www/nextcloud/apps/interfonts
+
+# 3. Download and install the new release (same steps as Installation above)
+
+# 4. Re-enable
 sudo -u www-data php /var/www/nextcloud/occ app:enable interfonts
 ```
 
