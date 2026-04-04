@@ -20,7 +20,7 @@ inside the app — no CDN, no Google Fonts, no external requests of any kind.
 | Dependency | Version |
 |---|---|
 | PHP | ≥ 8.2 |
-| Nextcloud | 27 – 32 |
+| Nextcloud | ≥ 32 |
 
 ## Installation
 
