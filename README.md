@@ -8,6 +8,9 @@ inside the app — no CDN, no Google Fonts, no external requests of any kind.
 
 <img alt="Nextcloud 32 screenshot using Inter font" src="https://github.com/user-attachments/assets/8c1c9d84-d553-4a00-8e6b-dd3d26b2b94a" />
 
+<img alt="Nextcloud 32 screenshot using Inter font" src="https://github.com/user-attachments/assets/c0ccd550-28d0-4837-b35d-23da4e1c74a2" />
+
+
 ## Features
 
 | Feature | Details |
