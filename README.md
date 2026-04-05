@@ -35,7 +35,8 @@ sudo -u www-data \
   git clone https://github.com/solracsf/nc-interfonts /var/www/nextcloud/apps/interfonts
 
 # 2. Enable the app via OCC
-sudo -u www-data php /var/www/nextcloud/occ app:enable interfonts
+sudo -u www-data \
+  php /var/www/nextcloud/occ app:enable interfonts
 ```
 
 > **Note:** Download links for every release are also listed on the
