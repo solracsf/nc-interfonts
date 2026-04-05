@@ -14,23 +14,6 @@ inside the app — no CDN, no Google Fonts, no external requests of any kind.
 ### Red and green colors
 <img alt="Nextcloud 32 screenshot using Inter font" src="https://github.com/user-attachments/assets/f703ed8a-9cd1-488b-8418-5f6bfc3e9c93" />
 
-## Features
-
-| Feature | Details |
-|---|---|
-| Fully self-hosted | Font files live at `fonts/` inside the app |
-| Variable font | One WOFF2 per axis covers weights 100–900 |
-| Full UI coverage | Injected on every page via `BeforeTemplateRenderedEvent` |
-| Sub-directory safe | Font URLs generated at runtime via `IURLGenerator` |
-| Deep integration | Overrides Nextcloud's `--font-face` CSS variable |
-
-## Requirements
-
-| Dependency | Version |
-|---|---|
-| PHP | &ge; 8.2 |
-| Nextcloud | 27 – 32 |
-
 ## Installation
 
 ```bash
