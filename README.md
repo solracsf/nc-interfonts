@@ -29,11 +29,6 @@ inside the app — no CDN, no Google Fonts, no external requests of any kind.
 
 ## Installation
 
-Always install from the **[latest release](https://github.com/solracsf/nc-interfonts/releases/latest)** —
-it includes the bundled Inter font files. Cloning or downloading the repository
-source directly will not include the WOFF2 files (they are committed by the
-automated release workflow).
-
 ```bash
 # 1. Clone this repo
 sudo -u www-data \
