@@ -35,37 +35,12 @@ source directly will not include the WOFF2 files (they are committed by the
 automated release workflow).
 
 ```bash
-# 1. Resolve the latest release tag and download the tarball
-TAG=$(curl -fsSL https://api.github.com/repos/solracsf/nc-interfonts/releases/latest \
-  | grep '"tag_name"' | cut -d '"' -f4)
+# 1. Clone this repo
+sudo -u www-data \
+  git clone https://github.com/solracsf/nc-interfonts /var/www/nextcloud/apps/interfonts
 
-curl -fsSL \
-  "https://github.com/solracsf/nc-interfonts/archive/refs/tags/${TAG}.tar.gz" \
-  -o /tmp/interfonts.tar.gz
-
-# 2. Extract into the Nextcloud apps directory
-tar -xzf /tmp/interfonts.tar.gz -C /var/www/nextcloud/apps/
-
-# The extracted folder is named nc-interfonts-<tag> — rename it
-mv "/var/www/nextcloud/apps/nc-interfonts-${TAG#v}" \
-   /var/www/nextcloud/apps/interfonts
-
-# 3. Set correct ownership
-chown -R www-data:www-data /var/www/nextcloud/apps/interfonts/
-
-# 4. Enable via OCC
+# 2. Enable the app via OCC
 sudo -u www-data php /var/www/nextcloud/occ app:enable interfonts
-```
-
-To pin a specific version, replace the tag resolution step:
-
-```bash
-# Replace v1.2.0 with any tag listed on the Releases page
-TAG=v1.2.0
-
-curl -fsSL \
-  "https://github.com/solracsf/nc-interfonts/archive/refs/tags/${TAG}.tar.gz" \
-  -o /tmp/interfonts.tar.gz
 ```
 
 > **Note:** Download links for every release are also listed on the
