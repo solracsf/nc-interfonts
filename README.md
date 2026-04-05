@@ -4,10 +4,14 @@ Replaces every Nextcloud interface font with **Inter**, a screen-optimised
 variable typeface [by Rasmus Andersson](https://rsms.me/inter/). All font files are embedded directly
 inside the app — no CDN, no Google Fonts, no external requests of any kind.
 
+## Screenshots
+### Default colors
 <img alt="Nextcloud 32 screenshot using Inter font" src="https://github.com/user-attachments/assets/7cad445e-e011-4f4a-b211-e3d9fb2315f4" />
 
+### Dark blue colors
 <img alt="Nextcloud 32 screenshot using Inter font" src="https://github.com/user-attachments/assets/8c1c9d84-d553-4a00-8e6b-dd3d26b2b94a" />
 
+### Red and green colors
 <img alt="Nextcloud 32 screenshot using Inter font" src="https://github.com/user-attachments/assets/f703ed8a-9cd1-488b-8418-5f6bfc3e9c93" />
 
 ## Features
