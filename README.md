@@ -33,7 +33,8 @@ sudo -u www-data \
 
 ```bash
 # 1. Disable the running app
-sudo -u www-data php /var/www/nextcloud/occ app:disable interfonts
+sudo -u www-data \
+  php /var/www/nextcloud/occ app:disable interfonts
 
 # 2. Remove the old version
 rm -rf /var/www/nextcloud/apps/interfonts
@@ -41,7 +42,8 @@ rm -rf /var/www/nextcloud/apps/interfonts
 # 3. Download and install the new release (same steps as Installation above)
 
 # 4. Re-enable
-sudo -u www-data php /var/www/nextcloud/occ app:enable interfonts
+sudo -u www-data \
+  php /var/www/nextcloud/occ app:enable interfonts
 ```
 
 ## Font files
