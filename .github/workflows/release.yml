@@ -8,46 +8,6 @@
 # bump_type   major | minor | patch   Which SemVer component to increment.
 # prerelease  true  | false           Mark the GitHub Release as pre-release.
 #
-# What the workflow does
-# ----------------------
-# 1.  Reads the current version from appinfo/info.xml.
-# 2.  Increments the requested component (major resets minor+patch,
-#     minor resets patch, patch just increments patch).
-# 3.  Updates appinfo/info.xml and CHANGELOG.md with the new version.
-# 4.  Commits directly to main.
-# 5.  Creates and pushes an annotated Git tag (vX.Y.Z).
-# 6.  Builds the App Store tarball: a clean interfonts/ folder containing
-#     only the files needed at runtime (appinfo/, fonts/, img/, lib/,
-#     COPYING, README.md, CHANGELOG.md). Dev files (.git, .github, etc.)
-#     are excluded.
-# 7.  Publishes a GitHub Release and attaches the tarball as a release asset.
-# 8.  Signs the tarball with APP_PRIVATE_KEY and POSTs the download URL +
-#     signature to the Nextcloud App Store API. This step is skipped if
-#     APPSTORE_TOKEN is not configured (e.g. before the initial app
-#     registration).
-#
-# One-time prerequisites (manual, done once per app)
-# ---------------------------------------------------
-# a) Generate a 4096-bit RSA key and CSR:
-#      openssl req -nodes -newkey rsa:4096 \
-#        -keyout interfonts.key -out interfonts.csr -subj "/CN=interfonts"
-# b) Submit interfonts.csr as a PR to:
-#      https://github.com/nextcloud/app-certificate-requests
-# c) After the PR is merged, download interfonts.crt from that repo.
-# d) Register the app on the App Store:
-#      - Go to https://apps.nextcloud.com/developer/apps/new
-#      - Paste the contents of interfonts.crt into the Certificate field
-#      - Compute the ownership signature and paste it into the Signature field:
-#          echo -n "interfonts" | openssl dgst -sha512 -sign interfonts.key | openssl base64
-# e) Add three GitHub Secrets to this repository:
-#      APP_PRIVATE_KEY  — PEM contents of interfonts.key   (never commit this)
-#      APP_PUBLIC_CRT   — PEM contents of interfonts.crt
-#      APPSTORE_TOKEN   — token from apps.nextcloud.com/account/token
-#
-# Permissions
-# -----------
-# The built-in GITHUB_TOKEN is used for all Git and GitHub API operations;
-# no personal access token is needed.
 
 name: Publish Release
 
