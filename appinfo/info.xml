@@ -34,15 +34,15 @@ The app itself is licensed under [AGPL-3.0-or-later](https://www.gnu.org/license
     <author homepage="https://github.com/solracsf">solracsf</author>
     <namespace>InterFonts</namespace>
     <category>customization</category>
+    <types>
+        <prelogin/>
+    </types>
     <website>https://github.com/solracsf/nc-interfonts</website>
     <bugs>https://github.com/solracsf/nc-interfonts/issues</bugs>
     <repository type="git">https://github.com/solracsf/nc-interfonts.git</repository>
     <screenshot>https://github.com/user-attachments/assets/7cad445e-e011-4f4a-b211-e3d9fb2315f4</screenshot>
     <screenshot>https://github.com/user-attachments/assets/8c1c9d84-d553-4a00-8e6b-dd3d26b2b94a</screenshot>
     <screenshot>https://github.com/user-attachments/assets/f703ed8a-9cd1-488b-8418-5f6bfc3e9c93</screenshot>
-    <types>
-        <prelogin/>
-    </types>
     <dependencies>
         <php min-version="8.2"/>
         <nextcloud min-version="32" max-version="35"/>
