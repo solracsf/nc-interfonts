@@ -46,94 +46,23 @@ font Nextcloud uses, everywhere.
 
 ## Installation
 
-```bash
-# 1. Clone into the apps directory
-sudo -u www-data git clone \
-  https://github.com/solracsf/nc-interfonts \
-  /var/www/nextcloud/apps/interfonts
+Install the app trough the WebUI or enable the app on the CLI
 
-# 2. Enable the app
+```bash
 sudo -u www-data php /var/www/nextcloud/occ app:enable interfonts
 ```
 
-That's it. Hard-refresh your browser (Ctrl+Shift+R / Cmd+Shift+R) and Nextcloud
-is now in Inter.
+That's it. Nextcloud is now in Inter.
 
 > Tagged release tarballs are also available on the
 > [Releases page](https://github.com/solracsf/nc-interfonts/releases).
 
-## Upgrading
-
-```bash
-cd /var/www/nextcloud/apps/interfonts
-sudo -u www-data git pull
-sudo -u www-data php /var/www/nextcloud/occ app:disable interfonts
-sudo -u www-data php /var/www/nextcloud/occ app:enable interfonts
-```
-
-The disable/enable cycle forces Nextcloud to re-read `appinfo/info.xml` and
-flush the bootstrap cache. Versioned font filenames mean browsers automatically
-fetch the new files — no manual cache clearing needed.
-
 ## Uninstalling
+
+Disable and remove the app trough the WebUI or remove the app on the CLI
 
 ```bash
 sudo -u www-data php /var/www/nextcloud/occ app:remove interfonts
-```
-
-## How it works
-
-The app is intentionally minimal — three PHP files in `lib/` that do exactly one job
-each:
-
-| File | Role |
-|---|---|
-| `lib/AppInfo/Application.php` | Bootstraps the app and registers the listener. Holds the helpers that map the bundled Inter version → font filenames. |
-| `lib/Listener/BeforeTemplateRenderedListener.php` | On every `BeforeTemplateRenderedEvent` (login, public shares, all authenticated pages), injects three `<link>` tags into `<head>`: two `rel="preload"` for the WOFF2 files and one `rel="stylesheet"` pointing at the controller below. |
-| `lib/Controller/CSSController.php` | Generates `text/css` at request time with two `@font-face` rules for `InterVariable`, a metric-compatible synthetic fallback, and the overrides that swap Nextcloud's font variable. URLs use `IURLGenerator::linkToRoute()` so they survive sub-directory installs. |
-| `lib/Controller/FontController.php` | Streams the bundled WOFF2 binaries with `Cache-Control: immutable, max-age=1y` and `Access-Control-Allow-Origin: *` (required so the preload matches the eventual font request). Filenames are validated against an allowlist generated from the bundled Inter version. |
-
-### Why not just `Util::addStyle()`?
-
-`Util::addStyle()` routes through `CSSResourceLocator`, which expects a real file on
-disk and silently drops anything else. A controller URL is not a file, so the
-stylesheet would never be injected. `Util::addHeader()` writes the `<link>` tag
-verbatim, which is what we want.
-
-### Why not a static `.css` file?
-
-`@font-face`'s `src: url(...)` token must be a literal — `var()` is forbidden.
-And static app CSS is served by Nextcloud through a hashed cache pipeline, so any
-relative font path inside it resolves against the cache URL rather than the app
-folder, and 404s. Generating the `@font-face` block inside a controller with
-`linkToRoute()` is the only way to get a stable, sub-directory-safe URL.
-
-### Why is the route `/stylesheet` and not `/css`?
-
-Apache and nginx both check `is_dir()` *before* running their rewrite rules. If the
-route URL collided with a real on-disk app directory (like `css/`), the web server
-would try to serve the directory directly and return 404 before Nextcloud's router
-ever saw the request.
-
-## File layout
-
-```
-nc-interfonts/
-├── appinfo/
-│   ├── info.xml         # App store manifest
-│   └── routes.php       # Two routes: /stylesheet, /font/{filename}
-├── fonts/
-│   ├── InterVariable-4.1.woff2          # Roman variable font
-│   ├── InterVariable-Italic-4.1.woff2   # Italic variable font
-│   └── inter-version.txt                # Upstream Inter version
-├── lib/
-│   ├── AppInfo/Application.php
-│   ├── Controller/CSSController.php
-│   ├── Controller/FontController.php
-│   └── Listener/BeforeTemplateRenderedListener.php
-├── CHANGELOG.md
-├── LICENSE
-└── README.md
 ```
 
 ## Credits
