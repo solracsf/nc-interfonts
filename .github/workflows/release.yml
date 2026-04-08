@@ -237,11 +237,11 @@ jobs:
           NEW: ${{ steps.new.outputs.version }}
           TAG: ${{ steps.new.outputs.tag }}
         run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name  "solracsf"
+          git config user.email "12234510+solracsf@users.noreply.github.com"
 
           git add appinfo/info.xml CHANGELOG.md
-          git commit -m "chore(release): bump version ${OLD} → ${NEW}"
+          git commit --signoff -m "chore(release): bump version ${OLD} → ${NEW}"
           git push origin main
           echo "Pushed version bump commit to main"
 
