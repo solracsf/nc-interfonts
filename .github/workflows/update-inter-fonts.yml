@@ -237,17 +237,53 @@ jobs:
           echo "info.xml version: $OLD -> $NEW"
 
       # -----------------------------------------------------------------------
-      # 9. Update CHANGELOG.md - prepend a new entry
+      # 9. Update CHANGELOG.md (Keep a Changelog format)
+      #
+      # Promotes ## [Unreleased] content to the new versioned entry (falls
+      # back to a generic Changed entry if [Unreleased] is empty).
+      # Resets [Unreleased] to empty for the next cycle.
       # -----------------------------------------------------------------------
       - name: Update CHANGELOG.md
         if: steps.check.outputs.needs_update == 'true'
         env:
           NEW_APP: ${{ steps.appver.outputs.new_app_version }}
           INTER:   ${{ steps.resolve.outputs.target_version }}
+          OLD_APP: ${{ steps.appver.outputs.current_app_version }}
         run: |
           DATE=$(date -u +%Y-%m-%d)
-          ENTRY="## ${NEW_APP} - ${DATE}\n\n### Changed\n- Updated bundled Inter font to ${INTER}.\n  Source: https://github.com/rsms/inter/releases/tag/${INTER}\n"
-          sed -i "1a\\${ENTRY}" CHANGELOG.md
+
+          UNRELEASED=$(awk '
+            /^## \[Unreleased\]/ { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md | sed '/^[[:space:]]*$/d')
+
+          if [[ -z "$UNRELEASED" ]]; then
+            BODY="### Changed"$'\n'"- Updated bundled Inter font to ${INTER}."$'\n'"  Source: https://github.com/rsms/inter/releases/tag/v${INTER}"
+          else
+            BODY="$UNRELEASED"
+          fi
+
+          printf '\n## %s - %s\n\n%s\n\n' "${NEW_APP}" "${DATE}" "${BODY}" \
+            > /tmp/changelog-entry.md
+
+          awk '
+            /^## \[Unreleased\]/ { found=1 }
+            found && /^## / && !/\[Unreleased\]/ { exit }
+            !found { print }
+          ' CHANGELOG.md > /tmp/changelog-new.md
+
+          printf '\n## [Unreleased]\n' >> /tmp/changelog-new.md
+          cat /tmp/changelog-entry.md >> /tmp/changelog-new.md
+
+          awk '
+            /^## \[Unreleased\]/ { inUnreleased=1; next }
+            inUnreleased && /^## / && !/\[Unreleased\]/ { inUnreleased=0; past=1 }
+            past { print }
+          ' CHANGELOG.md >> /tmp/changelog-new.md
+
+          mv /tmp/changelog-new.md CHANGELOG.md
+          echo "CHANGELOG.md updated: added entry for ${NEW_APP}"
 
       # -----------------------------------------------------------------------
       # 10. Commit all changes directly to main
@@ -258,12 +294,12 @@ jobs:
           NEW_APP: ${{ steps.appver.outputs.new_app_version }}
           INTER:   ${{ steps.resolve.outputs.target_version }}
         run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name  "solracsf"
+          git config user.email "12234510+solracsf@users.noreply.github.com"
 
           git add fonts/ appinfo/info.xml CHANGELOG.md
 
-          git commit -m "chore(release): bump app to ${NEW_APP}, update Inter font to ${INTER}"
+          git commit --signoff -m "chore(release): bump app to ${NEW_APP}, update Inter font to ${INTER}"
           git push origin main
 
       # -----------------------------------------------------------------------
