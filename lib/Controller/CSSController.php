@@ -32,35 +32,47 @@ use OCP\IURLGenerator;
  * for the bundled WOFF2 binaries is to generate the @font-face block at
  * request-time with IURLGenerator::linkToRoute().
  *
+ * Why font-family uses literal values and not var(--font-face)
+ * ------------------------------------------------------------
+ * Nextcloud's theming app generates a stylesheet (default.css, light.css,
+ * etc.) that ALSO sets --font-face on :root with the system font stack.
+ * Those theming sheets are injected into <head> AFTER this stylesheet.
+ *
+ * CSS custom properties with !important are only supported since
+ * Chrome 125 / Firefox 122 / Safari 17.4 (all April 2024 or later).
+ * On slightly older clients, !important on a custom property is silently
+ * ignored, so the theming sheet's --font-face declaration (which has no
+ * !important) wins simply because it is later in document order.
+ *
+ * Once --font-face resolves to the system font, any rule that says
+ * `font-family: var(--font-face) !important` expands to the system font
+ * with !important — not to Inter.
+ *
+ * The fix: declare Inter directly in every font-family property. The
+ * literal string 'InterVariable', 'InterVariable Fallback', ... is
+ * immune to --font-face being overridden by any other stylesheet.
+ * We still write --font-face so that Nextcloud's own JS/CSS that reads
+ * the variable gets a useful value, but we never depend on it ourselves.
+ *
  * What this stylesheet contains
  * -----------------------------
- *  - Two `@font-face` rules for `InterVariable` (roman + italic), with
- *    `font-weight: 100 900` so a single variable font covers every weight.
- *  - One `@font-face` rule for `InterVariable Fallback`, a synthetic local
- *    Arial face with `ascent-override`, `descent-override`,
- *    `line-gap-override` and `size-adjust` chosen so the fallback renders
- *    at the same metrics as Inter — eliminating layout shift (CLS) when
- *    the real font swaps in.
- *  - A `font-feature-settings` declaration enabling Inter's contextual
- *    alternates (`calt`) and standard ligatures (`liga`).
- *  - Overrides that re-target Nextcloud's `--background-text` font
- *    variable, plus a wide selector list covering every interactive
- *    surface (modals, popovers, file lists, login boxes, etc.).
- *  - `font-variant-numeric: tabular-nums` on numeric columns (file sizes,
- *    timestamps) so digits stay vertically aligned.
- *
- * Public, CSRF-free
- * -----------------
- * Marked #[PublicPage] and #[NoCSRFRequired] because this stylesheet is
- * loaded before any user session exists (login page, public share pages,
- * Impersonate sessions). It contains no user data.
+ *  - Two @font-face rules for InterVariable (roman + italic), variable
+ *    font covering weight 100–900 with font-display: swap.
+ *  - Two @font-face rules for InterVariable Fallback — a synthetic local
+ *    Arial with metric overrides calibrated against @next/font's reference
+ *    values for Inter, so the fallback renders at the same line heights
+ *    as Inter and the swap transition causes zero CLS.
+ *  - font-family set to the literal Inter stack (not var(--font-face))
+ *    on every meaningful Nextcloud surface.
+ *  - font-feature-settings: 'liga' 1, 'calt' 1 — Inter contextual
+ *    alternates; Chrome requires explicit opt-in.
+ *  - font-variant-numeric: tabular-nums on numeric columns.
  *
  * Caching
  * -------
- * The CSS is sent with `Cache-Control: public, max-age=604800, immutable`.
- * Font filenames embed the upstream Inter version, so the URLs inside the
- * CSS automatically change on a font upgrade — no manual cache-busting
- * is needed.
+ * Cache-Control: public, max-age=604800, immutable (7 days). The
+ * stylesheet URL is cache-busted by app version via ?v= in the listener,
+ * and font binary URLs are cache-busted by Inter version in the filename.
  */
 class CSSController extends Controller {
 
@@ -90,37 +102,38 @@ class CSSController extends Controller {
             ['filename' => Application::italicFontFilename()]
         );
 
-        // Defensive: encode any single-quotes that might somehow appear in
-        // the URLs (linkToRoute should never produce them).
+        // Defensive: linkToRoute should never produce single-quotes, but
+        // sanitise anyway before embedding into a CSS url() token.
         $romanUrl  = str_replace("'", '%27', $romanUrl);
         $italicUrl = str_replace("'", '%27', $italicUrl);
 
-        // System font stack used as the cascade fallback after Inter and
-        // its metric-compatible synthetic. Mirrors Nextcloud's own default
-        // so anything that escapes our overrides still looks native.
-        $systemStack = '-apple-system,BlinkMacSystemFont,'
+        // The full font stack: Inter variable font, metric-compat synthetic
+        // fallback, then the native system stack so text is always readable
+        // even before the WOFF2 has been parsed.
+        //
+        // IMPORTANT: this string is interpolated directly into every
+        // font-family declaration below. Do NOT use var(--font-face) in
+        // font-family — see class docblock for the reason.
+        $stack = "'InterVariable','InterVariable Fallback',"
+            . "-apple-system,BlinkMacSystemFont,"
             . '"Segoe UI",Roboto,Oxygen-Sans,Ubuntu,Cantarell,'
             . '"Helvetica Neue",Arial,sans-serif,'
             . '"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol"';
-
-        // Metric-compatible fallback overrides for Inter v4.
-        // These values are calibrated so a local Arial renders at the same
-        // ascent/descent/line-gap as Inter, eliminating CLS during the
-        // font-display: swap transition. Source: Vercel's @next/font
-        // automatic-fallback computation for Inter.
-        // https://github.com/vercel/next.js/tree/canary/packages/font
 
         $css = <<<CSS
 /*
  * Inter Fonts for Nextcloud — generated stylesheet
  *
  * No external requests: WOFF2 binaries are bundled and served by this app.
- * No CLS: a metric-compatible synthetic Arial fallback matches Inter's
- *         vertical metrics until the real variable font has swapped in.
- * No FOUT: BeforeTemplateRenderedListener also injects <link rel="preload">
- *          for both WOFF2 files in <head>, so download starts in parallel
- *          with the HTML parse.
+ * No CLS:   metric-compatible synthetic Arial fallback matches Inter's
+ *           vertical metrics until the real font has swapped in.
+ * No FOUT:  BeforeTemplateRenderedListener injects <link rel="preload">
+ *           for both WOFF2 files so download starts with the HTML parse.
+ * No var():  font-family uses a literal stack — theming cannot override it
+ *           by redefining --font-face after this sheet loads.
  */
+
+/* ── Variable font declarations ─────────────────────────────────────── */
 
 @font-face {
     font-family: 'InterVariable';
@@ -139,6 +152,10 @@ class CSSController extends Controller {
     src: url('{$italicUrl}') format('woff2-variations'),
          url('{$italicUrl}') format('woff2');
 }
+
+/* ── Metric-compatible synthetic fallback (zero CLS) ────────────────── */
+/* Values calibrated against Vercel @next/font for Inter v4.             */
+/* https://github.com/vercel/next.js/tree/canary/packages/font           */
 
 @font-face {
     font-family: 'InterVariable Fallback';
@@ -160,10 +177,14 @@ class CSSController extends Controller {
     size-adjust: 107.40%;
 }
 
+/* ── CSS variable update (for Nextcloud JS/CSS that reads --font-face) ─ */
+/* We do NOT use var(--font-face) in our own font-family declarations.    */
+
 :root {
-    --font-face: 'InterVariable', 'InterVariable Fallback', {$systemStack} !important;
-    --background-text: var(--font-face);
+    --font-face: {$stack};
 }
+
+/* ── Apply Inter — literal stack, not var(), immune to theming ──────── */
 
 html,
 body,
@@ -173,27 +194,14 @@ optgroup,
 option,
 select,
 textarea {
-    font-family: var(--font-face) !important;
-    font-feature-settings: 'liga' 1, 'calt' 1; /* fix for Chrome */
-}
-
-@supports (font-variation-settings: normal) {
-    html,
-    body,
-    button,
-    input,
-    optgroup,
-    option,
-    select,
-    textarea {
-        font-family: var(--font-face) !important;
-    }
+    font-family: {$stack} !important;
+    font-feature-settings: 'liga' 1, 'calt' 1; /* contextual alternates, Chrome needs explicit opt-in */
 }
 
 /*
- * Cover every interactive surface that Nextcloud styles separately,
- * including login/guest layouts (.guest-box, #body-login) and the
- * Impersonate / Guests apps which inherit those surfaces.
+ * Cover every Nextcloud surface that is styled independently,
+ * including the login page (.guest-box, #body-login, .body-login-container)
+ * and the Impersonate / Guests apps which inherit those surfaces.
  */
 #header,
 .header-left,
@@ -228,24 +236,21 @@ textarea {
 .empty-content,
 .emptycontent,
 table, th, td {
-    font-family: var(--font-face) !important;
+    font-family: {$stack} !important;
 }
 
-/* Inter has true italics in the variable font — let the browser use them */
+/* Inter ships true italics in the variable font */
 em, i, cite, dfn, var, address, .italic {
     font-style: italic;
-    font-family: var(--font-face) !important;
+    font-family: {$stack} !important;
 }
 
-/* Headings — let the variable font do its own optical sizing */
+/* Headings: let the variable font handle optical sizing */
 h1, h2, h3, h4, h5, h6 {
     font-optical-sizing: auto;
 }
 
-/*
- * Tabular numerals for any column where digits should align vertically:
- * file sizes, modification times, quotas, dashboards.
- */
+/* Tabular numerals for columns where digits must align vertically */
 .files-list,
 .files-list__row,
 .files-filestable,
