@@ -180,14 +180,19 @@ class CSSController extends Controller {
     --font-face: {$stack};
 }
 
-html,
-body,
-button,
-input,
-optgroup,
-option,
-select,
-textarea {
+/*
+ * Selectors prefixed with :root raise specificity from (0,0,1) to
+ * (0,1,1), so our !important rules win even when Nextcloud's guest
+ * or theming CSS appears later in source order with the same property.
+ */
+:root,
+:root body,
+:root button,
+:root input,
+:root optgroup,
+:root option,
+:root select,
+:root textarea {
     font-family: {$stack} !important;
     font-feature-settings: 'liga' 1, 'calt' 1; /* contextual alternates, Chrome needs explicit opt-in */
 }
@@ -197,63 +202,63 @@ textarea {
  * including the login page (.guest-box, #body-login, .body-login-container)
  * and the Impersonate / Guests apps which inherit those surfaces.
  */
-#header,
-.header-left,
-.header-right,
-.header-menu,
-#app-navigation,
-#app-navigation-vue,
-#app-content,
-#app-content-vue,
-#app-sidebar,
-#app-sidebar-vue,
-.modal-container,
-.modal-wrapper,
-.popover,
-.popover__inner,
-.tooltip,
-.toastify,
-.body-login-container,
-#body-login,
-.guest-box,
-.update,
-.nc-chip,
-.breadcrumb,
-.breadcrumb__crumb,
-.file-picker,
-.filepicker,
-.sharing-entry,
-.action-button,
-.action-input,
-.action-link,
-.action-text,
-.empty-content,
-.emptycontent,
-table, th, td {
+:root #header,
+:root .header-left,
+:root .header-right,
+:root .header-menu,
+:root #app-navigation,
+:root #app-navigation-vue,
+:root #app-content,
+:root #app-content-vue,
+:root #app-sidebar,
+:root #app-sidebar-vue,
+:root .modal-container,
+:root .modal-wrapper,
+:root .popover,
+:root .popover__inner,
+:root .tooltip,
+:root .toastify,
+:root .body-login-container,
+:root #body-login,
+:root .guest-box,
+:root .update,
+:root .nc-chip,
+:root .breadcrumb,
+:root .breadcrumb__crumb,
+:root .file-picker,
+:root .filepicker,
+:root .sharing-entry,
+:root .action-button,
+:root .action-input,
+:root .action-link,
+:root .action-text,
+:root .empty-content,
+:root .emptycontent,
+:root table, :root th, :root td {
     font-family: {$stack} !important;
 }
 
 /* Inter ships true italics in the variable font */
-em, i, cite, dfn, var, address, .italic {
+:root em, :root i, :root cite, :root dfn, :root var, :root address, :root .italic {
     font-style: italic;
     font-family: {$stack} !important;
 }
 
 /* Headings: let the variable font handle optical sizing */
-h1, h2, h3, h4, h5, h6 {
+:root h1, :root h2, :root h3, :root h4, :root h5, :root h6 {
     font-optical-sizing: auto;
 }
 
 /* Tabular numerals for columns where digits must align vertically */
-.files-list,
-.files-list__row,
-.files-filestable,
-.files-filestable td,
-.filesize,
-time,
-.modified,
-.date,
-.dashboard-widget__item__time {
+:root .files-list,
+:root .files-list__row,
+:root .files-filestable,
+:root .files-filestable td,
+:root .filesize,
+:root time,
+:root .modified,
+:root .date,
+:root .dashboard-widget__item__time {
     font-variant-numeric: tabular-nums;
 }
 CSS;
