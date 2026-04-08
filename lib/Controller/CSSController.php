@@ -192,7 +192,8 @@ class CSSController extends Controller {
 :root optgroup,
 :root option,
 :root select,
-:root textarea {
+:root textarea,
+:root [contenteditable] {
     font-family: {$stack} !important;
     font-feature-settings: 'liga' 1, 'calt' 1; /* contextual alternates, Chrome needs explicit opt-in */
 }
