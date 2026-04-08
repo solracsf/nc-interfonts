@@ -10,18 +10,39 @@
 #
 # What the workflow does
 # ----------------------
-# 1. Reads the current version from appinfo/info.xml.
-# 2. Increments the requested component (major resets minor+patch,
-#    minor resets patch, patch just increments patch).
-# 3. Updates appinfo/info.xml and CHANGELOG.md with the new version.
-# 4. Commits directly to main.
-# 5. Creates and pushes an annotated Git tag (vX.Y.Z).
-# 6. Publishes a GitHub Release with auto-generated release notes.
-#    The release body also links to the full CHANGELOG entry.
+# 1.  Reads the current version from appinfo/info.xml.
+# 2.  Increments the requested component (major resets minor+patch,
+#     minor resets patch, patch just increments patch).
+# 3.  Updates appinfo/info.xml and CHANGELOG.md with the new version.
+# 4.  Commits directly to main.
+# 5.  Creates and pushes an annotated Git tag (vX.Y.Z).
+# 6.  Builds the App Store tarball: a clean interfonts/ folder containing
+#     only the files needed at runtime (appinfo/, fonts/, img/, lib/,
+#     COPYING, README.md, CHANGELOG.md). Dev files (.git, .github, etc.)
+#     are excluded.
+# 7.  Publishes a GitHub Release and attaches the tarball as a release asset.
+# 8.  Signs the tarball with APP_PRIVATE_KEY and POSTs the download URL +
+#     signature to the Nextcloud App Store API. This step is skipped if
+#     APPSTORE_TOKEN is not configured (e.g. before the initial app
+#     registration).
+#
+# One-time prerequisites (manual, done once per app)
+# ---------------------------------------------------
+# a) Generate a 4096-bit RSA key and CSR:
+#      openssl req -nodes -newkey rsa:4096 \
+#        -keyout interfonts.key -out interfonts.csr -subj "/CN=interfonts"
+# b) Submit interfonts.csr as a PR to:
+#      https://github.com/nextcloud/app-certificate-requests
+# c) After the PR is merged, download interfonts.crt from that repo.
+# d) Register the app at https://apps.nextcloud.com/developer/apps/new
+# e) Add three GitHub Secrets to this repository:
+#      APP_PRIVATE_KEY  — PEM contents of interfonts.key   (never commit this)
+#      APP_PUBLIC_CRT   — PEM contents of interfonts.crt
+#      APPSTORE_TOKEN   — token from apps.nextcloud.com/account/token
 #
 # Permissions
 # -----------
-# The built-in GITHUB_TOKEN is used for all Git and API operations;
+# The built-in GITHUB_TOKEN is used for all Git and GitHub API operations;
 # no personal access token is needed.
 
 name: Publish Release
@@ -249,11 +270,9 @@ jobs:
 
           \`\`\`bash
           TAG=${TAG}
-          curl -fsSL "https://github.com/solracsf/nc-interfonts/archive/refs/tags/\${TAG}.tar.gz" \
+          curl -fsSL "https://github.com/solracsf/nc-interfonts/releases/download/\${TAG}/interfonts.tar.gz" \
             -o /tmp/interfonts.tar.gz
           tar -xzf /tmp/interfonts.tar.gz -C /var/www/nextcloud/apps/
-          mv "/var/www/nextcloud/apps/nc-interfonts-\${TAG#v}" \
-             /var/www/nextcloud/apps/interfonts
           chown -R www-data:www-data /var/www/nextcloud/apps/interfonts/
           sudo -u www-data php /var/www/nextcloud/occ app:enable interfonts
           \`\`\`
@@ -265,7 +284,32 @@ jobs:
           EOF
 
       # -----------------------------------------------------------------------
-      # 9. Publish GitHub Release
+      # 9. Build the App Store tarball
+      #
+      # The Nextcloud App Store requires a .tar.gz whose top-level folder
+      # name matches <id> in info.xml exactly ("interfonts").
+      # The auto-generated GitHub source archive has folder name
+      # "nc-interfonts-X.Y.Z/" and includes dev files — unsuitable.
+      # -----------------------------------------------------------------------
+      - name: Build app store tarball
+        run: |
+          APP_DIR=/tmp/build/interfonts
+
+          mkdir -p "${APP_DIR}"
+
+          # Copy only files needed at runtime
+          cp -r appinfo fonts img lib "${APP_DIR}/"
+          cp COPYING README.md CHANGELOG.md "${APP_DIR}/"
+
+          tar -czf /tmp/interfonts.tar.gz -C /tmp/build interfonts
+
+          echo "Tarball contents (top level):"
+          tar -tzf /tmp/interfonts.tar.gz | grep -E '^interfonts/[^/]+/?$' | sort
+
+          echo "Tarball size: $(du -sh /tmp/interfonts.tar.gz | cut -f1)"
+
+      # -----------------------------------------------------------------------
+      # 10. Publish GitHub Release and attach the tarball
       # -----------------------------------------------------------------------
       - name: Publish GitHub Release
         env:
@@ -283,7 +327,69 @@ jobs:
             --title "Inter Fonts ${NEW}" \
             --notes-file /tmp/release-notes.md \
             --latest \
+            /tmp/interfonts.tar.gz \
             $PRERELEASE_FLAG
 
           echo "Published: $TAG"
           echo "URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${TAG}"
+
+      # -----------------------------------------------------------------------
+      # 11. Sign tarball and publish to the Nextcloud App Store
+      #
+      # Skipped if APPSTORE_TOKEN is not configured (before the app is
+      # registered on the store for the first time).
+      # -----------------------------------------------------------------------
+      - name: Publish to Nextcloud App Store
+        env:
+          GH_TOKEN:        ${{ secrets.GITHUB_TOKEN }}
+          TAG:             ${{ steps.new.outputs.tag }}
+          APPSTORE_TOKEN:  ${{ secrets.APPSTORE_TOKEN }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+          PRERELEASE:      ${{ inputs.prerelease }}
+        run: |
+          if [[ -z "${APPSTORE_TOKEN}" ]]; then
+            echo "APPSTORE_TOKEN not configured — skipping App Store publish."
+            echo "See workflow comments for one-time setup instructions."
+            exit 0
+          fi
+
+          if [[ -z "${APP_PRIVATE_KEY}" ]]; then
+            echo "ERROR: APP_PRIVATE_KEY secret is not set." >&2
+            exit 1
+          fi
+
+          # Write the private key to a temp file (auto-cleaned by runner)
+          echo "${APP_PRIVATE_KEY}" > /tmp/interfonts.key
+          chmod 600 /tmp/interfonts.key
+
+          # Direct download URL of the tarball attached to the release
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/interfonts.tar.gz"
+
+          # Sign the tarball with SHA-512 (this is what the App Store API verifies)
+          SIGNATURE=$(openssl dgst -sha512 \
+            -sign /tmp/interfonts.key \
+            /tmp/interfonts.tar.gz \
+            | openssl base64 -A)
+
+          NIGHTLY="false"
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            NIGHTLY="true"
+          fi
+
+          HTTP_STATUS=$(curl -s -o /tmp/appstore-response.json -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Token ${APPSTORE_TOKEN}" \
+            -H "Content-Type: application/json; charset=utf8" \
+            "https://apps.nextcloud.com/api/v1/apps/releases" \
+            -d "{\"download\": \"${DOWNLOAD_URL}\", \"signature\": \"${SIGNATURE}\", \"nightly\": ${NIGHTLY}}")
+
+          echo "App Store HTTP status: ${HTTP_STATUS}"
+          cat /tmp/appstore-response.json
+
+          # 200 = updated, 201 = created
+          if [[ "${HTTP_STATUS}" != "200" && "${HTTP_STATUS}" != "201" ]]; then
+            echo "ERROR: App Store API returned HTTP ${HTTP_STATUS}" >&2
+            exit 1
+          fi
+
+          echo "Successfully published to the Nextcloud App Store."
