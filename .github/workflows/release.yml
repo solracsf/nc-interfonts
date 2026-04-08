@@ -26,24 +26,6 @@
 #     signature to the Nextcloud App Store API. Skipped gracefully when
 #     APPSTORE_TOKEN is not configured.
 #
-# One-time prerequisites (manual, done once per app)
-# ---------------------------------------------------
-# a) Generate a 4096-bit RSA key and CSR:
-#      openssl req -nodes -newkey rsa:4096 \
-#        -keyout interfonts.key -out interfonts.csr -subj "/CN=interfonts"
-# b) Submit interfonts.csr as a PR to:
-#      https://github.com/nextcloud/app-certificate-requests
-# c) After the PR is merged, download interfonts.crt from that repo.
-# d) Register the app on the App Store:
-#      - Go to https://apps.nextcloud.com/developer/apps/new
-#      - Paste the contents of interfonts.crt into the Certificate field
-#      - Compute the ownership signature and paste it into the Signature field:
-#          echo -n "interfonts" | openssl dgst -sha512 -sign interfonts.key | openssl base64
-# e) Add three GitHub Secrets to this repository:
-#      APP_PRIVATE_KEY  — PEM contents of interfonts.key   (never commit this)
-#      APP_PUBLIC_CRT   — PEM contents of interfonts.crt
-#      APPSTORE_TOKEN   — token from apps.nextcloud.com/account/token
-#
 # Permissions
 # -----------
 # The built-in GITHUB_TOKEN is used for all Git and GitHub API operations;
@@ -209,14 +191,11 @@ jobs:
             BODY="$UNRELEASED"
           fi
 
-          # Build the versioned entry
-          cat > /tmp/changelog-entry.md <<ENTRY
-
-## ${NEW} - ${DATE}
-
-${BODY}
-
-ENTRY
+          # Build the versioned entry (printf avoids a heredoc end-marker at
+          # column 0 which would break the YAML block scalar and silently
+          # prevent GitHub Actions from parsing name: and on: workflow_dispatch:)
+          printf '\n## %s - %s\n\n%s\n\n' "${NEW}" "${DATE}" "${BODY}" \
+            > /tmp/changelog-entry.md
 
           # Rebuild CHANGELOG.md:
           #  header lines (up to and including ## [Unreleased]) → reset block → new entry → old entries
