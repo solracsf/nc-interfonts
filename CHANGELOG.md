@@ -13,8 +13,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   list so the direct rule is matched and overridden.
 
 ### Changed
-- GitHub Actions workflow commits now use `github-actions[bot]` identity
-  (restored after accidental change).
 - CHANGELOG update logic in both release workflows rewritten: promotes
   `## [Unreleased]` content into the new versioned entry and resets the
   block to empty; fixes header duplication bug from previous `sed`/`awk`
