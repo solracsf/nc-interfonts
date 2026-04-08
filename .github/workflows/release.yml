@@ -214,11 +214,15 @@ jobs:
           # Append the new versioned entry
           cat /tmp/changelog-entry.md >> /tmp/changelog-new.md
 
-          # Append all old versioned entries (everything after [Unreleased] block)
+          # Append all old versioned entries (everything after [Unreleased] block).
+          # We must NOT print the file header again — only lines that come after
+          # the [Unreleased] block has ended (i.e. when the first versioned ##
+          # heading is reached). The previous approach printed from the top of
+          # the file and therefore duplicated the header on every release.
           awk '
-            /^## \[Unreleased\]/ { skip=1; next }
-            skip && /^## / && !/\[Unreleased\]/ { skip=0 }
-            !skip { print }
+            /^## \[Unreleased\]/ { inUnreleased=1; next }
+            inUnreleased && /^## / && !/\[Unreleased\]/ { inUnreleased=0; past=1 }
+            past { print }
           ' CHANGELOG.md >> /tmp/changelog-new.md
 
           mv /tmp/changelog-new.md CHANGELOG.md
