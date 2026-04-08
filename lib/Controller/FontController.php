@@ -25,26 +25,28 @@ use OCP\IRequest;
  * Security
  * --------
  * The {filename} route parameter is constrained by a regex in routes.php
- * ([a-zA-Z0-9._-]+) and then validated against an explicit allowlist here,
- * so path traversal is impossible by construction.
+ * (`[a-zA-Z0-9._-]+`) and then validated against an explicit allowlist
+ * generated from the bundled Inter version. Path traversal is impossible
+ * by construction — there is no concatenation of user input into the
+ * filesystem path beyond the allowlisted basename.
  *
  * Caching
  * -------
- * Font files are immutable for a given app version, so we serve them with
- * Cache-Control: public, max-age=31536000 (1 year). Browsers will re-fetch
- * only when the URL changes, which happens on app upgrade because the route
- * is generated fresh each time.
+ * Font binaries are immutable for a given upstream Inter version. Because
+ * the version is part of the filename (e.g. `InterVariable-4.1.woff2`),
+ * a font upgrade automatically produces a new URL — there is no need for
+ * any cache-busting query string. We send `Cache-Control: public,
+ * max-age=31536000, immutable` so browsers cache aggressively and only
+ * re-fetch when the URL changes.
+ *
+ * CORS
+ * ----
+ * `Access-Control-Allow-Origin: *` is set so that `<link rel="preload"
+ * as="font" crossorigin>` from the listener correctly matches the actual
+ * font request — without it, the preload would be ignored and the browser
+ * would issue a second, non-preloaded request.
  */
 class FontController extends Controller {
-
-    /**
-     * Explicit allowlist of font files this controller will serve.
-     * Any filename not in this list returns 404.
-     */
-    private const ALLOWED_FILES = [
-        'Inter.var.woff2',
-        'InterItalic.var.woff2',
-    ];
 
     public function __construct(
         IRequest $request,
@@ -55,35 +57,39 @@ class FontController extends Controller {
     /**
      * Serves a WOFF2 font file.
      *
-     * Route: GET /index.php/apps/interfonts/font/{filename}
+     * Route: GET /apps/interfonts/font/{filename}
      *
-     * @param string $filename One of Inter.var.woff2 or InterItalic.var.woff2
+     * @param string $filename The bundled WOFF2 filename, e.g.
+     *                         InterVariable-4.1.woff2 or
+     *                         InterVariable-Italic-4.1.woff2
      */
     #[PublicPage]
     #[NoCSRFRequired]
     #[NoAdminRequired]
     public function serve(string $filename): DataDisplayResponse|NotFoundResponse {
         // Allowlist check — belt-and-suspenders on top of the route regex.
-        if (!in_array($filename, self::ALLOWED_FILES, true)) {
+        if (!in_array($filename, Application::allowedFontFilenames(), true)) {
             return new NotFoundResponse();
         }
 
-        $fontPath = __DIR__ . '/../../fonts/' . $filename;
+        // basename() defends against any future allowlist mistake that
+        // accidentally includes a directory separator.
+        $fontPath = __DIR__ . '/../../fonts/' . basename($filename);
 
         if (!is_file($fontPath) || !is_readable($fontPath)) {
             return new NotFoundResponse();
         }
 
         $data = file_get_contents($fontPath);
-
         if ($data === false) {
             return new NotFoundResponse();
         }
 
         return new DataDisplayResponse($data, Http::STATUS_OK, [
-            'Content-Type'   => 'font/woff2',
-            'Cache-Control'  => 'public, max-age=31536000, immutable',
-            'X-Content-Type-Options' => 'nosniff',
+            'Content-Type'                => 'font/woff2',
+            'Cache-Control'               => 'public, max-age=31536000, immutable',
+            'X-Content-Type-Options'      => 'nosniff',
+            'Access-Control-Allow-Origin' => '*',
         ]);
     }
 }

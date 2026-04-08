@@ -13,21 +13,23 @@ declare(strict_types=1);
  *
  * interfonts.CSS.stylesheet
  *   GET /stylesheet
- *   Returns text/css with the @font-face declarations.
- *   URLs inside @font-face point to the font routes below.
+ *   Returns text/css with the @font-face declarations and metric-compatible
+ *   fallback. URLs inside @font-face point to the font routes below.
  *   Injected globally via Util::addHeader() in BeforeTemplateRenderedListener.
  *
- *   NOTE: The URL was intentionally changed from /css to /stylesheet.
- *   The app ships a real css/ directory on disk.  Apache and nginx both
- *   resolve a physical directory before the index.php rewrite rule fires,
- *   so GET /apps/interfonts/css was served as a directory listing (403/404)
- *   instead of reaching this controller.  Using /stylesheet avoids any
- *   name collision with files or directories that exist in the app tree.
+ *   NOTE: The URL is /stylesheet rather than /css because Apache and nginx
+ *   resolve physical directories before running mod_rewrite/try_files. If
+ *   the route URL ever collides with a real directory in the app tree, the
+ *   web server returns 403/404 before Nextcloud's router is reached.
  *
  * interfonts.Font.serve
  *   GET /font/{filename}
- *   Streams a WOFF2 file from fonts/ with long-lived cache headers.
- *   Filename is validated against an allowlist — no path traversal possible.
+ *   Streams a WOFF2 file from fonts/ with long-lived immutable cache headers.
+ *   Filename is constrained by route regex AND validated against an explicit
+ *   allowlist generated from the bundled Inter version, so path traversal is
+ *   impossible by construction. The version is part of the filename
+ *   (e.g. InterVariable-4.1.woff2), so font upgrades automatically invalidate
+ *   browser caches without any cache-busting query string.
  */
 return [
     'routes' => [

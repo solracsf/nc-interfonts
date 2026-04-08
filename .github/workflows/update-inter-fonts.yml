@@ -4,11 +4,14 @@
 # When a newer Inter version is detected it:
 #   1. Downloads the official Inter release ZIP
 #   2. Extracts the variable WOFF2 files (roman + italic)
-#   3. Bumps the app minor version in appinfo/info.xml and CHANGELOG.md
-#   4. Updates the bundled-version comment in css/inter-font.css
-#   5. Commits everything directly to main
-#   6. Creates and pushes a Git tag for the new app version
-#   7. Publishes a GitHub Release with release notes
+#   3. Removes the previously bundled versioned WOFF2 files
+#   4. Writes them as fonts/InterVariable-<ver>.woff2 and
+#      fonts/InterVariable-Italic-<ver>.woff2
+#   5. Updates fonts/inter-version.txt
+#   6. Bumps the app minor version in appinfo/info.xml and CHANGELOG.md
+#   7. Commits everything directly to main
+#   8. Creates and pushes a Git tag for the new app version
+#   9. Publishes a GitHub Release with release notes
 #
 # Inter v4.x ZIP layout (confirmed):
 #   web/InterVariable.woff2          <- roman variable font
@@ -68,9 +71,12 @@ jobs:
             exit 1
           fi
 
-          echo "Resolved Inter version: $TARGET"
-          echo "target_version=$TARGET"        >> "$GITHUB_OUTPUT"
-          echo "target_version_num=${TARGET#v}" >> "$GITHUB_OUTPUT"
+          # Strip leading 'v' for use in filenames (matches Application::interVersion())
+          VERSION_NUM="${TARGET#v}"
+
+          echo "Resolved Inter version: $TARGET (filename suffix: $VERSION_NUM)"
+          echo "target_version=$TARGET"          >> "$GITHUB_OUTPUT"
+          echo "target_version_num=$VERSION_NUM" >> "$GITHUB_OUTPUT"
 
       # -----------------------------------------------------------------------
       # 3. Read current committed Inter version
@@ -104,7 +110,6 @@ jobs:
 
       # -----------------------------------------------------------------------
       # 5. Compute new app version (bump minor, reset patch)
-      #    Example: 1.1.0 -> 1.2.0
       # -----------------------------------------------------------------------
       - name: Compute new app version
         id: appver
@@ -151,6 +156,8 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Extract variable WOFF2 files
         if: steps.check.outputs.needs_update == 'true'
+        env:
+          VERSION_NUM: ${{ steps.resolve.outputs.target_version_num }}
         run: |
           mkdir -p /tmp/inter_extracted fonts
 
@@ -198,9 +205,21 @@ jobs:
           echo "Roman  : $ROMAN ($(du -h "$ROMAN" | cut -f1))"
           echo "Italic : $ITALIC ($(du -h "$ITALIC" | cut -f1))"
 
-          cp "$ROMAN"  fonts/Inter.var.woff2
-          cp "$ITALIC" fonts/InterItalic.var.woff2
+          # Remove any previously bundled versioned WOFF2 files so we don't
+          # ship two copies side by side. Match the pattern the PHP code uses.
+          rm -f fonts/InterVariable-*.woff2 fonts/InterVariable-Italic-*.woff2
+
+          # Write new files with version embedded in the filename. The PHP
+          # FontController allowlist is generated from inter-version.txt,
+          # so the names must follow this exact pattern:
+          #   InterVariable-<version>.woff2
+          #   InterVariable-Italic-<version>.woff2
+          cp "$ROMAN"  "fonts/InterVariable-${VERSION_NUM}.woff2"
+          cp "$ITALIC" "fonts/InterVariable-Italic-${VERSION_NUM}.woff2"
           echo "${{ steps.resolve.outputs.target_version }}" > fonts/inter-version.txt
+
+          echo "Bundled files:"
+          ls -lh fonts/
 
       # -----------------------------------------------------------------------
       # 8. Bump app version in appinfo/info.xml
@@ -228,23 +247,7 @@ jobs:
           sed -i "1a\\${ENTRY}" CHANGELOG.md
 
       # -----------------------------------------------------------------------
-      # 10. Update bundled-version comment in css/inter-font.css
-      # -----------------------------------------------------------------------
-      - name: Update CSS version comment
-        if: steps.check.outputs.needs_update == 'true'
-        env:
-          INTER: ${{ steps.resolve.outputs.target_version }}
-        run: |
-          sed -i "s|Copyright (c) 2016-[0-9]\{4\} The Inter Project|Copyright (c) 2016-$(date +%Y) The Inter Project|g" css/inter-font.css
-
-          if grep -q 'Bundled Inter version:' css/inter-font.css; then
-            sed -i "s|Bundled Inter version:.*|Bundled Inter version: ${INTER}|g" css/inter-font.css
-          else
-            sed -i "1s|^|/* Bundled Inter version: ${INTER} */\n|" css/inter-font.css
-          fi
-
-      # -----------------------------------------------------------------------
-      # 11. Commit all changes directly to main
+      # 10. Commit all changes directly to main
       # -----------------------------------------------------------------------
       - name: Commit updated files
         if: steps.check.outputs.needs_update == 'true'
@@ -255,19 +258,13 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add \
-            fonts/Inter.var.woff2 \
-            fonts/InterItalic.var.woff2 \
-            fonts/inter-version.txt \
-            appinfo/info.xml \
-            CHANGELOG.md \
-            css/inter-font.css
+          git add fonts/ appinfo/info.xml CHANGELOG.md
 
           git commit -m "chore(release): bump app to ${NEW_APP}, update Inter font to ${INTER}"
           git push origin main
 
       # -----------------------------------------------------------------------
-      # 12. Create and push a Git tag for the new app version
+      # 11. Create and push a Git tag for the new app version
       # -----------------------------------------------------------------------
       - name: Tag new app version
         if: steps.check.outputs.needs_update == 'true'
@@ -281,8 +278,7 @@ jobs:
           echo "Pushed tag: $TAG"
 
       # -----------------------------------------------------------------------
-      # 13. Write release notes to file, then publish GitHub Release
-      #     --notes-file avoids YAML parse issues with multi-line strings.
+      # 12. Write release notes to file, then publish GitHub Release
       # -----------------------------------------------------------------------
       - name: Write release notes
         if: steps.check.outputs.needs_update == 'true'
@@ -304,12 +300,11 @@ jobs:
           | **Bundled Inter** | [${INTER}](https://github.com/rsms/inter/releases/tag/${INTER}) |
 
           ### Files updated
-          - `fonts/Inter.var.woff2`
-          - `fonts/InterItalic.var.woff2`
+          - `fonts/InterVariable-*.woff2`
+          - `fonts/InterVariable-Italic-*.woff2`
           - `fonts/inter-version.txt`
           - `appinfo/info.xml`
           - `CHANGELOG.md`
-          - `css/inter-font.css`
 
           ---
           _Released automatically by the [Update Inter Fonts](${REPO_URL}/actions/workflows/update-inter-fonts.yml) workflow._

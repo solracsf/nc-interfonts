@@ -1,0 +1,131 @@
+# .github/workflows/ci.yml
+#
+# Lints PHP sources, validates appinfo/info.xml against the Nextcloud
+# app store schema, and verifies that the bundled WOFF2 filenames match
+# the version declared in fonts/inter-version.txt. Runs on every push and
+# pull request to main.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  php-lint:
+    name: PHP ${{ matrix.php }} syntax check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3', '8.4']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: none
+
+      - name: Lint every PHP file under lib/ and appinfo/
+        run: |
+          set -e
+          FAIL=0
+          while IFS= read -r -d '' f; do
+            if ! php -l "$f" >/dev/null 2>&1; then
+              echo "::error file=$f::Syntax error in $f"
+              php -l "$f" || true
+              FAIL=1
+            fi
+          done < <(find lib appinfo -name '*.php' -print0)
+          exit "$FAIL"
+
+  info-xml:
+    name: Validate appinfo/info.xml against Nextcloud schema
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install xmllint
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libxml2-utils
+
+      - name: Download Nextcloud info.xsd
+        run: |
+          curl -fsSL \
+            https://apps.nextcloud.com/schema/apps/info.xsd \
+            -o /tmp/info.xsd
+
+      - name: Validate info.xml
+        run: |
+          xmllint --noout --schema /tmp/info.xsd appinfo/info.xml
+
+      - name: Verify required fields are present
+        run: |
+          set -e
+          for field in id name summary description version licence author namespace category; do
+            if ! grep -q "<${field}>" appinfo/info.xml; then
+              echo "::error::Required field <${field}> missing from appinfo/info.xml"
+              exit 1
+            fi
+          done
+          echo "All required fields present."
+
+  fonts-consistency:
+    name: Verify font filenames match inter-version.txt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check WOFF2 filenames embed the bundled version
+        run: |
+          set -e
+
+          if [[ ! -f fonts/inter-version.txt ]]; then
+            echo "::error::fonts/inter-version.txt is missing"
+            exit 1
+          fi
+
+          # Strip the leading 'v' just like Application::interVersion() does
+          VER=$(tr -d '[:space:]' < fonts/inter-version.txt | sed 's/^v//')
+          if [[ -z "$VER" ]]; then
+            echo "::error::fonts/inter-version.txt is empty"
+            exit 1
+          fi
+
+          ROMAN="fonts/InterVariable-${VER}.woff2"
+          ITALIC="fonts/InterVariable-Italic-${VER}.woff2"
+
+          MISSING=0
+          for f in "$ROMAN" "$ITALIC"; do
+            if [[ ! -f "$f" ]]; then
+              echo "::error::Expected font file $f is missing (version $VER from inter-version.txt)"
+              MISSING=1
+            else
+              echo "OK: $f ($(du -h "$f" | cut -f1))"
+            fi
+          done
+
+          # Also catch any leftover/stale versioned files
+          STRAY=$(find fonts -name 'InterVariable*.woff2' \
+                  ! -name "InterVariable-${VER}.woff2" \
+                  ! -name "InterVariable-Italic-${VER}.woff2")
+          if [[ -n "$STRAY" ]]; then
+            echo "::error::Stale WOFF2 file(s) found that do not match version ${VER}:"
+            echo "$STRAY"
+            MISSING=1
+          fi
+
+          exit "$MISSING"

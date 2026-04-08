@@ -2,28 +2,44 @@
 <info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
       xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
     <id>interfonts</id>
-    <namespace>InterFonts</namespace>
     <name>Inter Fonts</name>
-    <summary>Replaces all Nextcloud interface fonts with the Inter typeface</summary>
+    <summary>Replaces every Nextcloud interface font with Inter — self-hosted, zero external requests</summary>
     <description><![CDATA[
 # Inter Fonts
 
 Switches every font in the Nextcloud interface to **Inter**, a highly-legible
 typeface designed specifically for computer screens by Rasmus Andersson.
 
-- Zero external requests — the Inter variable font is fully self-hosted inside this app
-- Covers all weights (100–900) from a single WOFF2 variable-font file per axis
-- Works correctly in sub-directory installs via runtime URL generation
-- Works across the entire Nextcloud UI: navigation, file lists, modals, settings, and more
-- Overrides the Nextcloud CSS font variable for deep integration
+## Features
 
-The font is licensed under the [SIL Open Font License 1.1](https://scripts.sil.org/OFL).
+- **Zero external requests** — the Inter variable font is fully self-hosted inside the app, no Google Fonts, no CDN
+- **Single variable font** covers every weight from 100 to 900 (roman + italic)
+- **Zero FOUT** — both WOFF2 files are preloaded with `<link rel="preload">` so the font is in cache before paint
+- **Zero CLS** — a metric-compatible synthetic Arial fallback matches Inter's vertical metrics until the real font swaps in
+- **Works on every page** including the login form, public share pages, password recovery, and the Impersonate / Guests apps
+- **Works in sub-directory installs** via runtime URL generation through `IURLGenerator`
+- **Cache-safe across upgrades** — font filenames embed the upstream Inter version, so a new release automatically becomes a new URL
+- **Covers the whole UI**: navigation, file lists, modals, popovers, login boxes, dashboards, and more
+- **Tabular numerals** on file sizes and timestamps so digits stay vertically aligned
+
+## Credits
+
+The **Inter** typeface is created by [Rasmus Andersson](https://rsms.me/inter/)
+and licensed under the [SIL Open Font License 1.1](https://scripts.sil.org/OFL).
+
+The app itself is licensed under [AGPL-3.0-or-later](https://www.gnu.org/licenses/agpl-3.0.html).
     ]]></description>
-    <version>1.3.0</version>
-    <licence>AGPL-3.0-or-later</licence>
+    <version>1.4.0</version>
+    <licence>agpl</licence>
     <author homepage="https://github.com/solracsf">solracsf</author>
+    <namespace>InterFonts</namespace>
     <category>customization</category>
+    <website>https://github.com/solracsf/nc-interfonts</website>
     <bugs>https://github.com/solracsf/nc-interfonts/issues</bugs>
+    <repository type="git">https://github.com/solracsf/nc-interfonts.git</repository>
+    <screenshot>https://github.com/user-attachments/assets/7cad445e-e011-4f4a-b211-e3d9fb2315f4</screenshot>
+    <screenshot>https://github.com/user-attachments/assets/8c1c9d84-d553-4a00-8e6b-dd3d26b2b94a</screenshot>
+    <screenshot>https://github.com/user-attachments/assets/f703ed8a-9cd1-488b-8418-5f6bfc3e9c93</screenshot>
     <dependencies>
         <php min-version="8.2"/>
         <nextcloud min-version="27" max-version="32"/>
