@@ -28,26 +28,30 @@ use OCP\AppFramework\Http\Events\BeforeTemplateRenderedEvent;
  * Architecture (intentionally minimal — three files)
  * --------------------------------------------------
  *  1. Listener\BeforeTemplateRenderedListener
- *     Subscribes to OCP\AppFramework\Http\Events\BeforeTemplateRenderedEvent,
- *     which fires for every TemplateResponse render — including the login
- *     page, public share pages, and any AppFramework-rendered page. The
- *     listener injects two raw <link> elements into <head>:
+ *     Registered for two events so it covers every page:
  *
- *       a) <link rel="preload" as="font" crossorigin> for each WOFF2 file,
- *          so the browser starts downloading them in parallel with the HTML
- *          parse, eliminating FOUT (Flash of Unstyled Text).
- *       b) <link rel="stylesheet"> pointing at Controller\CSSController,
+ *       - BeforeTemplateRenderedEvent      — authenticated pages (files,
+ *         settings, apps, …)
+ *       - BeforeLoginTemplateRenderedEvent — the login form, password
+ *         recovery, public share pages, and other unauthenticated pages.
+ *         Nextcloud fires a separate event for these; registering only for
+ *         BeforeTemplateRenderedEvent leaves the login page unstyled.
+ *
+ *     The listener injects three raw <link> elements into <head> via
+ *     Util::addHeader() (not Util::addStyle(), which routes through
+ *     CSSResourceLocator, requires a real file on disk, and silently drops
+ *     controller URLs):
+ *
+ *       a) <link rel="preload" as="font" crossorigin> for the roman WOFF2,
+ *          so the browser fetches it in parallel with the HTML parse.
+ *       b) <link rel="preload" as="font" crossorigin> for the italic WOFF2.
+ *       c) <link rel="stylesheet"> pointing at Controller\CSSController,
  *          which generates the @font-face block at request time.
  *
- *     Why Util::addHeader() instead of Util::addStyle()?
- *     Util::addStyle() routes through CSSResourceLocator, which tries to
- *     resolve the value to a file on disk and silently drops anything that
- *     does not. Util::addHeader() injects the tag verbatim.
- *
  *  2. Controller\CSSController (GET /apps/interfonts/stylesheet)
- *     Returns text/css with two @font-face declarations (roman + italic),
- *     a metric-compatible fallback @font-face for zero CLS, and the
- *     overrides that swap Nextcloud's --background-text font variable.
+ *     Returns text/css containing two @font-face rules (roman + italic),
+ *     two metric-compatible fallback @font-face rules for zero CLS, and
+ *     font-family overrides for every Nextcloud surface.
  *     Font URLs are generated with IURLGenerator::linkToRoute() so they
  *     are correct in sub-directory installs and overwrite.cli.url setups.
  *
@@ -59,11 +63,10 @@ use OCP\AppFramework\Http\Events\BeforeTemplateRenderedEvent;
  *
  * Why a controller for CSS instead of a static file?
  * --------------------------------------------------
- * Nextcloud's CSS asset pipeline serves static app CSS through a hashed
- * cache URL (/css-cache/xxxxx.css). Relative font URLs inside such a file
- * resolve against the cache path, not the app directory, so they always
- * 404. A controller using IURLGenerator::linkToRoute() is the only way to
- * get a stable, sub-directory-safe absolute URL for the font binaries.
+ * @font-face's src: url(...) token must be a literal — var() is not
+ * permitted there per the CSS spec. Font URLs must be absolute and
+ * sub-directory-safe, which requires IURLGenerator::linkToRoute() at
+ * request time. A static file cannot call PHP.
  *
  * Why /stylesheet instead of /css?
  * --------------------------------

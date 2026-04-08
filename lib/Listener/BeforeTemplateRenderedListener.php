@@ -21,10 +21,14 @@ use OCP\Util;
 /**
  * Injects the Inter font assets into every Nextcloud page.
  *
- * BeforeTemplateRenderedEvent fires from TemplateResponse::render(), so
- * this listener runs for *every* AppFramework-rendered page — logged in
- * pages, the login form, public share pages, password recovery, the
- * Impersonate and Guests apps, etc.
+ * This listener is registered for two events:
+ *
+ *  - BeforeTemplateRenderedEvent      — fires for every authenticated
+ *    AppFramework page (files, settings, apps, …).
+ *  - BeforeLoginTemplateRenderedEvent — fires for the login form, password
+ *    recovery, public share pages, and other unauthenticated pages.
+ *    Nextcloud dispatches this as a separate event; the authenticated event
+ *    is never fired for these pages.
  *
  * Three tags are added to <head>:
  *
@@ -49,7 +53,7 @@ use OCP\Util;
  * FontController sends `Access-Control-Allow-Origin: *` so the preload
  * actually matches the eventual font request and is not wasted.
  *
- * @template-implements IEventListener<BeforeTemplateRenderedEvent>
+ * @template-implements IEventListener<BeforeTemplateRenderedEvent|BeforeLoginTemplateRenderedEvent>
  */
 class BeforeTemplateRenderedListener implements IEventListener {
 

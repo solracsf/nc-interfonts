@@ -25,12 +25,9 @@ use OCP\IURLGenerator;
  * Why a controller and not a static .css file?
  * --------------------------------------------
  * @font-face's `src: url(...)` token must be a literal — `var()` is not
- * permitted there per the CSS spec. Static CSS files in a Nextcloud app's
- * css/ directory are served through a hashed cache pipeline, so any
- * relative path inside them resolves against the cache URL rather than
- * the app directory. The only way to get a stable, sub-directory-safe URL
- * for the bundled WOFF2 binaries is to generate the @font-face block at
- * request-time with IURLGenerator::linkToRoute().
+ * permitted there per the CSS spec. Font URLs must be absolute and
+ * sub-directory-safe, which requires IURLGenerator::linkToRoute() at
+ * request time. A static file cannot call PHP.
  *
  * Why font-family uses literal values and not var(--font-face)
  * ------------------------------------------------------------
@@ -151,8 +148,9 @@ class CSSController extends Controller {
          url('{$italicUrl}') format('woff2');
 }
 
-/* Values calibrated against Vercel @next/font for Inter v4.             */
-/* https://github.com/vercel/next.js/tree/canary/packages/font           */
+/* Metric-compatible fallback — calibrated against Vercel @next/font for Inter v4.
+ * https://github.com/vercel/next.js/tree/canary/packages/font
+ * Matches Inter's ascent/descent/size so the swap causes zero CLS. */
 
 @font-face {
     font-family: 'InterVariable Fallback';
@@ -174,7 +172,9 @@ class CSSController extends Controller {
     size-adjust: 107.40%;
 }
 
-/* We do NOT use var(--font-face) in our own font-family declarations.    */
+/* --font-face is kept for Nextcloud JS/CSS that reads the variable, but  */
+/* we never use var(--font-face) in our own font-family declarations —    */
+/* see class docblock for the reason.                                     */
 
 :root {
     --font-face: {$stack};
