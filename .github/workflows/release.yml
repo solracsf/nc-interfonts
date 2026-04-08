@@ -34,7 +34,11 @@
 # b) Submit interfonts.csr as a PR to:
 #      https://github.com/nextcloud/app-certificate-requests
 # c) After the PR is merged, download interfonts.crt from that repo.
-# d) Register the app at https://apps.nextcloud.com/developer/apps/new
+# d) Register the app on the App Store:
+#      - Go to https://apps.nextcloud.com/developer/apps/new
+#      - Paste the contents of interfonts.crt into the Certificate field
+#      - Compute the ownership signature and paste it into the Signature field:
+#          echo -n "interfonts" | openssl dgst -sha512 -sign interfonts.key | openssl base64
 # e) Add three GitHub Secrets to this repository:
 #      APP_PRIVATE_KEY  — PEM contents of interfonts.key   (never commit this)
 #      APP_PUBLIC_CRT   — PEM contents of interfonts.crt
@@ -171,37 +175,72 @@ jobs:
           fi
 
       # -----------------------------------------------------------------------
-      # 5. Prepend CHANGELOG.md entry
+      # 5. Update CHANGELOG.md (Keep a Changelog format)
+      #
+      # Strategy:
+      #  - Move the content of the ## [Unreleased] block into a new versioned
+      #    entry. If [Unreleased] is empty, a generic "Version bump" entry is
+      #    used instead.
+      #  - Replace ## [Unreleased] with an empty reset block for the next cycle.
+      #
+      # Edit CHANGELOG.md *before* running the release workflow if you want
+      # meaningful release notes: put your changes under ## [Unreleased] and
+      # this step will promote them to the new version entry automatically.
       # -----------------------------------------------------------------------
       - name: Update CHANGELOG.md
         env:
-          OLD:  ${{ steps.current.outputs.current }}
-          NEW:  ${{ steps.new.outputs.version }}
-          BUMP: ${{ inputs.bump_type }}
+          OLD: ${{ steps.current.outputs.current }}
+          NEW: ${{ steps.new.outputs.version }}
         run: |
           DATE=$(date -u +%Y-%m-%d)
 
-          case "$BUMP" in
-            major) LABEL="Major release" ;;
-            minor) LABEL="Minor release" ;;
-            patch) LABEL="Patch release" ;;
-          esac
+          # Extract the content between ## [Unreleased] and the next ## heading.
+          # sed: skip lines until [Unreleased], then print until the next ##.
+          UNRELEASED=$(awk '
+            /^## \[Unreleased\]/ { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md | sed '/^[[:space:]]*$/d')
 
-          # Build the new CHANGELOG entry in a temp file
-          cat > /tmp/changelog-entry.md << EOF
-          ## ${NEW} — ${DATE}
+          if [[ -z "$UNRELEASED" ]]; then
+            # Nothing staged under [Unreleased] — use a generic entry
+            BODY="### Changed"$'\n'"- Version bump from ${OLD} to ${NEW}."
+          else
+            BODY="$UNRELEASED"
+          fi
 
-          ### ${LABEL}
-          - Version bump from ${OLD} to ${NEW}.
+          # Build the versioned entry
+          cat > /tmp/changelog-entry.md <<ENTRY
 
-          EOF
+## ${NEW} - ${DATE}
 
-          # Prepend the entry after the first line ("# Changelog" heading)
-          head -1 CHANGELOG.md > /tmp/changelog-new.md
-          echo "" >> /tmp/changelog-new.md
+${BODY}
+
+ENTRY
+
+          # Rebuild CHANGELOG.md:
+          #  header lines (up to and including ## [Unreleased]) → reset block → new entry → old entries
+          awk '
+            /^## \[Unreleased\]/ { found=1 }
+            found && /^## / && !/\[Unreleased\]/ { exit }
+            !found { print }
+          ' CHANGELOG.md > /tmp/changelog-new.md
+
+          # Append reset [Unreleased] block
+          printf '\n## [Unreleased]\n' >> /tmp/changelog-new.md
+
+          # Append the new versioned entry
           cat /tmp/changelog-entry.md >> /tmp/changelog-new.md
-          tail -n +2 CHANGELOG.md >> /tmp/changelog-new.md
+
+          # Append all old versioned entries (everything after [Unreleased] block)
+          awk '
+            /^## \[Unreleased\]/ { skip=1; next }
+            skip && /^## / && !/\[Unreleased\]/ { skip=0 }
+            !skip { print }
+          ' CHANGELOG.md >> /tmp/changelog-new.md
+
           mv /tmp/changelog-new.md CHANGELOG.md
+          echo "CHANGELOG.md updated: added entry for ${NEW}"
 
       # -----------------------------------------------------------------------
       # 6. Commit updated files directly to main
