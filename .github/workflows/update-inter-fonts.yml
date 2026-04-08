@@ -294,12 +294,12 @@ jobs:
           NEW_APP: ${{ steps.appver.outputs.new_app_version }}
           INTER:   ${{ steps.resolve.outputs.target_version }}
         run: |
-          git config user.name  "solracsf"
-          git config user.email "12234510+solracsf@users.noreply.github.com"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git add fonts/ appinfo/info.xml CHANGELOG.md
 
-          git commit --signoff -m "chore(release): bump app to ${NEW_APP}, update Inter font to ${INTER}"
+          git commit -m "chore(release): bump app to ${NEW_APP}, update Inter font to ${INTER}"
           git push origin main
 
       # -----------------------------------------------------------------------

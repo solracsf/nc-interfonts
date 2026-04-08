@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Rich-text editors (Tiptap/ProseMirror, `contenteditable` divs) now use
+  Inter. Nextcloud's `inputs.scss` targets `div[contenteditable]` directly
+  with `var(--font-face)`; added `:root [contenteditable]` to our selector
+  list so the direct rule is matched and overridden.
+
+### Changed
+- GitHub Actions workflow commits now use `github-actions[bot]` identity
+  (restored after accidental change).
+- CHANGELOG update logic in both release workflows rewritten: promotes
+  `## [Unreleased]` content into the new versioned entry and resets the
+  block to empty; fixes header duplication bug from previous `sed`/`awk`
+  approach.
+
 ## 2.0.1 - 2026-04-08
 
 ### Changed
