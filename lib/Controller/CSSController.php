@@ -133,8 +133,6 @@ class CSSController extends Controller {
  *           by redefining --font-face after this sheet loads.
  */
 
-/* ── Variable font declarations ─────────────────────────────────────── */
-
 @font-face {
     font-family: 'InterVariable';
     font-style: normal;
@@ -153,7 +151,6 @@ class CSSController extends Controller {
          url('{$italicUrl}') format('woff2');
 }
 
-/* ── Metric-compatible synthetic fallback (zero CLS) ────────────────── */
 /* Values calibrated against Vercel @next/font for Inter v4.             */
 /* https://github.com/vercel/next.js/tree/canary/packages/font           */
 
@@ -177,14 +174,11 @@ class CSSController extends Controller {
     size-adjust: 107.40%;
 }
 
-/* ── CSS variable update (for Nextcloud JS/CSS that reads --font-face) ─ */
 /* We do NOT use var(--font-face) in our own font-family declarations.    */
 
 :root {
     --font-face: {$stack};
 }
-
-/* ── Apply Inter — literal stack, not var(), immune to theming ──────── */
 
 html,
 body,
