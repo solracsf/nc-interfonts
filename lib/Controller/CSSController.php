@@ -96,13 +96,13 @@ class CSSController extends Controller {
 }
 
 :root {
-    --font-face: {$stack} !important;
-	font-feature-settings: 'cv11', 'ss01';
+    --font-stack: {$stack} !important;
+    font-feature-settings: 'cv11', 'ss01';
 }
 
 html,
 body {
-    font-family: var(--font-face) !important;
+    font-family: var(--font-stack) !important;
 }
 
 input,
@@ -111,7 +111,7 @@ select,
 textarea,
 optgroup,
 option {
-    font-family: var(--font-face) !important;
+    font-family: var(--font-stack) !important;
 }
 
 #app-navigation,
@@ -147,7 +147,7 @@ option {
 .empty-content,
 .emptycontent,
 table, th, td {
-    font-family: var(--font-face) !important;
+    font-family: var(--font-stack) !important;
 }
 
 h1, h2, h3, h4, h5, h6 {
