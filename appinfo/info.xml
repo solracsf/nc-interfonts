@@ -42,6 +42,6 @@ The app itself is licensed under [AGPL-3.0-or-later](https://www.gnu.org/license
     <screenshot>https://github.com/user-attachments/assets/f703ed8a-9cd1-488b-8418-5f6bfc3e9c93</screenshot>
     <dependencies>
         <php min-version="8.2"/>
-        <nextcloud min-version="27" max-version="32"/>
+        <nextcloud min-version="32" max-version="35"/>
     </dependencies>
 </info>
