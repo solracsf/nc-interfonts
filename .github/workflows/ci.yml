@@ -75,7 +75,7 @@ jobs:
         run: |
           set -e
           for field in id name summary description version licence author namespace category; do
-            if ! grep -q "<${field}>" appinfo/info.xml; then
+            if ! grep -qi "<${field}" appinfo/info.xml; then
               echo "::error::Required field <${field}> missing from appinfo/info.xml"
               exit 1
             fi
