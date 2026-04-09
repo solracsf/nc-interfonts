@@ -22,7 +22,11 @@
 #     only runtime files (appinfo/, fonts/, img/, lib/, COPYING, README.md,
 #     CHANGELOG.md). Dev files (.git, .github, etc.) are excluded.
 # 7.  Publishes a GitHub Release and attaches the tarball as a release asset.
-# 8.  Signs the tarball with APP_PRIVATE_KEY and POSTs the download URL +
+# 8.  Downloads and verifies the tarball from GitHub's CDN (retry loop).
+#     This step bridges the propagation delay between the release asset upload
+#     and the CDN serving the file correctly — the App Store downloads from
+#     this same URL, so we must confirm it is valid before posting.
+# 9.  Signs the tarball with APP_PRIVATE_KEY and POSTs the download URL +
 #     signature to the Nextcloud App Store API. Skipped gracefully when
 #     APPSTORE_TOKEN is not configured.
 #
@@ -356,7 +360,93 @@ jobs:
           echo "URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${TAG}"
 
       # -----------------------------------------------------------------------
-      # 11. Sign tarball and publish to the Nextcloud App Store
+      # 11. Wait for the release asset to be served correctly by GitHub's CDN
+      #
+      # GitHub's CDN can take a few seconds to propagate a newly uploaded
+      # release asset. The Nextcloud App Store downloads the tarball from this
+      # same URL right after we POST it. If the CDN isn't ready yet, the App
+      # Store receives an HTML redirect or an empty body instead of gzip data,
+      # and it rejects it with: "interfonts.tar.gz is not a valid tar.gz archive".
+      #
+      # This step:
+      #   1. Polls the download URL (up to MAX_ATTEMPTS × SLEEP_SECS seconds).
+      #   2. On each attempt, downloads the file and validates it with `file`
+      #      (must report "gzip compressed data") AND `tar -tzf` (must list at
+      #      least one entry starting with "interfonts/").
+      #   3. Compares the SHA-256 of the downloaded file against the locally
+      #      built tarball to confirm byte-for-byte identity.
+      #   4. Fails loudly if integrity cannot be confirmed after all retries,
+      #      preventing a corrupt archive from being posted to the App Store.
+      # -----------------------------------------------------------------------
+      - name: Verify release asset on CDN
+        env:
+          TAG: ${{ steps.new.outputs.tag }}
+        run: |
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/interfonts.tar.gz"
+          LOCAL="/tmp/interfonts.tar.gz"
+          REMOTE="/tmp/interfonts-cdn.tar.gz"
+          MAX_ATTEMPTS=12   # up to ~60 s total
+          SLEEP_SECS=5
+
+          echo "Waiting for CDN: ${DOWNLOAD_URL}"
+
+          LOCAL_SHA=$(sha256sum "${LOCAL}" | awk '{print $1}')
+          echo "Local SHA-256 : ${LOCAL_SHA}"
+
+          for attempt in $(seq 1 ${MAX_ATTEMPTS}); do
+            echo "--- Attempt ${attempt}/${MAX_ATTEMPTS} ---"
+
+            # Download with redirect-following; suppress progress, show errors
+            HTTP_STATUS=$(curl -sL -o "${REMOTE}" -w "%{http_code}" \
+              --retry 0 --max-time 30 \
+              "${DOWNLOAD_URL}")
+
+            echo "HTTP status: ${HTTP_STATUS}"
+
+            if [[ "${HTTP_STATUS}" != "200" ]]; then
+              echo "Non-200 response; retrying in ${SLEEP_SECS}s…"
+              sleep ${SLEEP_SECS}
+              continue
+            fi
+
+            # Validate magic bytes (gzip)
+            FILE_TYPE=$(file -b "${REMOTE}")
+            echo "file(1) says: ${FILE_TYPE}"
+            if ! echo "${FILE_TYPE}" | grep -qi "gzip compressed"; then
+              echo "Not a gzip file yet; retrying in ${SLEEP_SECS}s…"
+              sleep ${SLEEP_SECS}
+              continue
+            fi
+
+            # Validate tar structure: must contain at least one interfonts/ entry
+            if ! tar -tzf "${REMOTE}" 2>/dev/null | grep -q '^interfonts/'; then
+              echo "tar listing invalid or missing interfonts/ prefix; retrying in ${SLEEP_SECS}s…"
+              sleep ${SLEEP_SECS}
+              continue
+            fi
+
+            # Verify SHA-256 matches the locally built tarball
+            REMOTE_SHA=$(sha256sum "${REMOTE}" | awk '{print $1}')
+            echo "Remote SHA-256: ${REMOTE_SHA}"
+
+            if [[ "${REMOTE_SHA}" != "${LOCAL_SHA}" ]]; then
+              echo "SHA-256 mismatch — CDN may still be propagating; retrying in ${SLEEP_SECS}s…"
+              sleep ${SLEEP_SECS}
+              continue
+            fi
+
+            echo "✓ CDN asset verified: gzip-valid, tar-valid, SHA-256 matches."
+
+            # Replace the local copy with the verified CDN copy for signing
+            cp "${REMOTE}" "${LOCAL}"
+            exit 0
+          done
+
+          echo "ERROR: release asset could not be verified after ${MAX_ATTEMPTS} attempts." >&2
+          exit 1
+
+      # -----------------------------------------------------------------------
+      # 12. Sign tarball and publish to the Nextcloud App Store
       #
       # Skipped if APPSTORE_TOKEN is not configured (before the app is
       # registered on the store for the first time).
@@ -388,6 +478,9 @@ jobs:
           DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/interfonts.tar.gz"
 
           # Sign the tarball with SHA-512 (this is what the App Store API verifies)
+          # Note: we sign /tmp/interfonts.tar.gz which was replaced by the CDN-verified
+          # copy in the previous step, ensuring the signature covers the exact bytes
+          # that the App Store will download.
           SIGNATURE=$(openssl dgst -sha512 \
             -sign /tmp/interfonts.key \
             /tmp/interfonts.tar.gz \
