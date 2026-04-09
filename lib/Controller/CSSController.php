@@ -239,6 +239,14 @@ class CSSController extends Controller {
     font-family: {$stack} !important;
 }
 
+/* Pin bold weight to 700. The user agent sets font-weight: bolder on
+ * <strong> and <b>, which is a relative keyword — it resolves to the next
+ * bolder weight above the inherited value and can produce 800 or 900 with
+ * a variable font. We always want exactly 700 (semibold). */
+:root strong, :root b {
+    font-weight: 700;
+}
+
 /* Inter ships true italics in the variable font */
 :root em, :root i, :root cite, :root dfn, :root var, :root address, :root .italic {
     font-style: italic;

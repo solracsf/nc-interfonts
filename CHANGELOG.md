@@ -11,6 +11,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   Inter. Nextcloud's `inputs.scss` targets `div[contenteditable]` directly
   with `var(--font-face)`; added `:root [contenteditable]` to our selector
   list so the direct rule is matched and overridden.
+- `<strong>` and `<b>` now render at exactly weight 700. The user agent
+  stylesheet sets `font-weight: bolder` (a relative keyword) which resolves
+  to 800 or 900 on a variable font; pinned to 700 with `:root strong, :root b`.
 
 ### Changed
 - CHANGELOG update logic in both release workflows rewritten: promotes
