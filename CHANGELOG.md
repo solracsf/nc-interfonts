@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- `<strong>` and `<b>` font-weight pin now uses `!important`; the previous
+  rule without it was overridden by later-loaded component stylesheets
+  (Tiptap/ProseMirror) with equal specificity and later source order.
+
 ## 2.0.2 - 2026-04-09
 
 ### Fixed
