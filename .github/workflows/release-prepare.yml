@@ -12,27 +12,44 @@
 #   3. Creates a `release/vX.Y.Z` branch
 #   4. Updates info.xml + CHANGELOG.md (promotes [Unreleased] block
 #      content into the new versioned entry; resets [Unreleased])
-#   5. Commits + pushes the release branch (release/* is not a
-#      protected ref; main is)
+#   5. Commits + pushes the release branch using the RELEASE_TOKEN PAT
+#      (release/* is not a protected ref; main is)
 #   6. Opens a PR titled `chore(release): vX.Y.Z` with label `release`
-#   7. Manually fires CI + integration workflows on the release branch
-#      so the PR's required-checks gate gets satisfied
 #
-# Why "manually fires" CI
-# -----------------------
-# Pushes and PRs created with the built-in GITHUB_TOKEN do NOT trigger
-# downstream workflow runs (anti-loop protection in GitHub Actions).
-# `workflow_dispatch` is the documented exception
-# (https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow),
-# so we add `workflow_dispatch:` to ci.yml + integration.yml and call
-# them with `gh workflow run --ref release/vX.Y.Z`. This avoids the
-# need for a long-lived PAT secret.
+# Why a PAT (RELEASE_TOKEN) is required
+# -------------------------------------
+# Pushes and PRs created with the built-in GITHUB_TOKEN are exempt
+# from triggering downstream workflow runs (anti-loop protection).
+# This means the resulting PR's required-checks rollup never gets
+# the CI/Integration check_runs, so branch protection blocks merge
+# even though every job actually passes when invoked manually.
+#
+# A user PAT (or fine-grained token) bypasses the anti-loop limit:
+# its `git push` and `gh pr create` calls fire the normal `push` /
+# `pull_request: opened` events, which trigger ci.yml + integration.yml
+# in the standard `pull_request` check_suite — exactly the suite that
+# branch protection consults.
+#
+# Setup (one-time)
+# ----------------
+# 1. Create a fine-grained PAT at
+#    https://github.com/settings/personal-access-tokens/new
+#    scoped to this repository, with these permissions:
+#       Contents       : Read and write
+#       Pull requests  : Read and write
+#       Workflows      : Read and write
+#       Metadata       : Read-only (auto-included)
+# 2. Add it as repo secret `RELEASE_TOKEN`
+#    (Settings → Secrets and variables → Actions → New repository secret)
+# 3. Done — every Release — Prepare PR run will use it.
 #
 # Phase 2
 # -------
 # When the prep PR merges, release-publish.yml fires automatically,
 # tags the merge commit, builds the App Store tarball, creates the
-# GitHub Release, and uploads to the Nextcloud App Store.
+# GitHub Release, and uploads to the Nextcloud App Store. Phase 2
+# uses GITHUB_TOKEN; it does not need the PAT because it pushes a
+# tag (which is not covered by branch rulesets).
 
 name: Release — Prepare PR
 
@@ -58,21 +75,65 @@ on:
           - "true"
 
 permissions:
-  contents: write          # push to release/* branch
-  pull-requests: write     # gh pr create
-  actions: write           # gh workflow run
+  contents: write          # push to release/* branch (only matters as a token-scope hint;
+                           #                            actual push uses RELEASE_TOKEN)
+  pull-requests: write     # gh pr create (likewise)
 
 jobs:
   prepare:
     name: Open release PR
     runs-on: ubuntu-latest
     steps:
+      # -----------------------------------------------------------------------
+      # 0. Guard — fail loudly if RELEASE_TOKEN is missing
+      #
+      # Failing in the first step is much friendlier than letting the workflow
+      # bump the version, push the branch, and only THEN fail at PR creation
+      # leaving a stale `release/vX.Y.Z` branch on origin.
+      # -----------------------------------------------------------------------
+      - name: Verify RELEASE_TOKEN secret is configured
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_TOKEN" ]; then
+            cat <<'MSG' >&2
+
+          ::error::RELEASE_TOKEN secret is not set.
+
+          Phase 1 of the release flow needs a personal access token (PAT) to
+          push and open the prep PR — pushes/PRs from the built-in GITHUB_TOKEN
+          do not trigger CI in the pull_request check_suite, which leaves the
+          PR's required-checks gate permanently unsatisfied.
+
+          One-time setup:
+
+            1. Create a fine-grained PAT scoped to this repository at
+               https://github.com/settings/personal-access-tokens/new
+               with permissions:
+                 Contents       : Read and write
+                 Pull requests  : Read and write
+                 Workflows      : Read and write
+            2. Add it as repo secret RELEASE_TOKEN
+               (Settings → Secrets and variables → Actions)
+
+          See the header comment of .github/workflows/release-prepare.yml
+          for the full rationale.
+
+          MSG
+            exit 1
+          fi
+          echo "RELEASE_TOKEN is configured."
+
       - name: Checkout main with full history
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # PAT, not GITHUB_TOKEN — see step 0's failure message for why.
+          # actions/checkout configures git's credential helper from this
+          # token, so subsequent `git push` calls in this job authenticate
+          # as the PAT owner and trigger CI events normally.
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       # -----------------------------------------------------------------------
       # 1. Read current version from appinfo/info.xml
@@ -206,6 +267,12 @@ jobs:
 
       # -----------------------------------------------------------------------
       # 5. Commit on a new release/vX.Y.Z branch and push
+      #
+      # The push goes out as the RELEASE_TOKEN PAT owner (configured by
+      # actions/checkout above), so GitHub fires `push` events normally
+      # — and the matching `pull_request: opened` event in step 6 is
+      # also unrestricted, which means CI fires automatically without
+      # any explicit workflow_dispatch trick.
       # -----------------------------------------------------------------------
       - name: Create release branch and commit
         env:
@@ -230,6 +297,8 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Ensure 'release' label exists
         env:
+          # Using GITHUB_TOKEN is fine for label CRUD — labels are not
+          # subject to the anti-loop rule, and gh CLI just needs auth.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Idempotent — `--force` updates the label if it already exists.
@@ -242,7 +311,12 @@ jobs:
       - name: Open release PR
         id: pr
         env:
-          GH_TOKEN:    ${{ secrets.GITHUB_TOKEN }}
+          # PAT, NOT GITHUB_TOKEN — `gh pr create` authenticated as the
+          # PAT owner fires the `pull_request: opened` event normally,
+          # which triggers CI + Integration in the pull_request
+          # check_suite. With GITHUB_TOKEN the event is suppressed and
+          # the PR's required-checks gate stays unsatisfied.
+          GH_TOKEN:    ${{ secrets.RELEASE_TOKEN }}
           OLD:         ${{ steps.current.outputs.current }}
           NEW:         ${{ steps.new.outputs.version }}
           TAG:         ${{ steps.new.outputs.tag }}
@@ -281,24 +355,6 @@ jobs:
 
           echo "Opened: $PR_URL"
           echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
-
-      # -----------------------------------------------------------------------
-      # 7. Trigger CI on the release branch via workflow_dispatch
-      #
-      # Pushes/PRs created with GITHUB_TOKEN do not trigger downstream
-      # workflows — workflow_dispatch IS the exception. ci.yml and
-      # integration.yml each declare a workflow_dispatch trigger; calling
-      # them here gives the PR's required-checks gate something to gate on
-      # without a PAT.
-      # -----------------------------------------------------------------------
-      - name: Trigger CI on the release branch
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BRANCH:   ${{ steps.new.outputs.branch }}
-        run: |
-          gh workflow run ci.yml          --ref "$BRANCH"
-          gh workflow run integration.yml --ref "$BRANCH"
-          echo "Triggered ci.yml + integration.yml on $BRANCH"
 
       - name: Print next steps
         env:
