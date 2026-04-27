@@ -120,6 +120,21 @@ jobs:
           # most stable assertion).
           docker exec --user www-data nc php occ app:list | grep -F interfonts
 
+      - name: Warm up route cache
+        # The first request after `occ app:enable` can return 404 because
+        # Apache prefork workers carry their own PHP opcache and only
+        # rebuild the route map on the stale-route miss. We make a few
+        # throwaway requests so every worker that subsequent tests might
+        # land on has rebuilt its routes. Confirmed via local repro:
+        # without warmup attempt 1 returns 404, attempt 2 returns 200 —
+        # adding warmup makes the smoke tests deterministic.
+        run: |
+          for i in 1 2 3 4 5; do
+            curl -fsS -o /dev/null \
+              "http://localhost:8080/apps/interfonts/stylesheet?v=warmup-$i" || true
+            sleep 1
+          done
+
       - name: Smoke-test — stylesheet endpoint
         run: |
           set -euo pipefail
