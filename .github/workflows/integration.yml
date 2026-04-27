@@ -46,6 +46,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Same reason as ci.yml: release-prepare.yml fires this on the
+  # release/* branch via `gh workflow run` so the PR's required-checks
+  # gate is satisfied without a PAT.
+  workflow_dispatch:
 
 permissions:
   contents: read

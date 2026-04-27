@@ -1,0 +1,308 @@
+# SPDX-FileCopyrightText: 2026 Inter Fonts App Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# .github/workflows/release-prepare.yml
+#
+# Phase 1 of 2 in the branch-protection-friendly release flow.
+#
+# What this does
+# --------------
+#   1. Reads the current version from appinfo/info.xml
+#   2. Computes the next version per the requested bump_type
+#   3. Creates a `release/vX.Y.Z` branch
+#   4. Updates info.xml + CHANGELOG.md (promotes [Unreleased] block
+#      content into the new versioned entry; resets [Unreleased])
+#   5. Commits + pushes the release branch (release/* is not a
+#      protected ref; main is)
+#   6. Opens a PR titled `chore(release): vX.Y.Z` with label `release`
+#   7. Manually fires CI + integration workflows on the release branch
+#      so the PR's required-checks gate gets satisfied
+#
+# Why "manually fires" CI
+# -----------------------
+# Pushes and PRs created with the built-in GITHUB_TOKEN do NOT trigger
+# downstream workflow runs (anti-loop protection in GitHub Actions).
+# `workflow_dispatch` is the documented exception
+# (https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow),
+# so we add `workflow_dispatch:` to ci.yml + integration.yml and call
+# them with `gh workflow run --ref release/vX.Y.Z`. This avoids the
+# need for a long-lived PAT secret.
+#
+# Phase 2
+# -------
+# When the prep PR merges, release-publish.yml fires automatically,
+# tags the merge commit, builds the App Store tarball, creates the
+# GitHub Release, and uploads to the Nextcloud App Store.
+
+name: Release — Prepare PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: "Version bump type"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      prerelease:
+        description: "Mark eventual GitHub Release as pre-release?"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: write          # push to release/* branch
+  pull-requests: write     # gh pr create
+  actions: write           # gh workflow run
+
+jobs:
+  prepare:
+    name: Open release PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main with full history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # -----------------------------------------------------------------------
+      # 1. Read current version from appinfo/info.xml
+      # -----------------------------------------------------------------------
+      - name: Read current version
+        id: current
+        run: |
+          CURRENT=$(grep -oP '(?<=<version>)[^<]+' appinfo/info.xml | tr -d '[:space:]')
+
+          if ! echo "$CURRENT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::unexpected version format in info.xml: '$CURRENT'"
+            exit 1
+          fi
+
+          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT" | cut -d. -f2)
+          PATCH=$(echo "$CURRENT" | cut -d. -f3)
+
+          echo "Current version : $CURRENT"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "major=$MAJOR"     >> "$GITHUB_OUTPUT"
+          echo "minor=$MINOR"     >> "$GITHUB_OUTPUT"
+          echo "patch=$PATCH"     >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------------
+      # 2. Compute new version + verify no collision
+      # -----------------------------------------------------------------------
+      - name: Compute new version
+        id: new
+        env:
+          BUMP:  ${{ inputs.bump_type }}
+          MAJOR: ${{ steps.current.outputs.major }}
+          MINOR: ${{ steps.current.outputs.minor }}
+          PATCH: ${{ steps.current.outputs.patch }}
+        run: |
+          case "$BUMP" in
+            major) NEW_VERSION="$((MAJOR + 1)).0.0" ;;
+            minor) NEW_VERSION="${MAJOR}.$((MINOR + 1)).0" ;;
+            patch) NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
+            *)
+              echo "::error::unknown bump_type '$BUMP'"
+              exit 1
+              ;;
+          esac
+
+          TAG="v${NEW_VERSION}"
+          BRANCH="release/${TAG}"
+
+          echo "New version : $NEW_VERSION (bump: $BUMP)"
+          echo "Tag         : $TAG"
+          echo "Branch      : $BRANCH"
+
+          # Abort if either the tag or the release branch already exists
+          # on origin — indicates a stale prep that needs cleaning up first.
+          if git ls-remote --tags origin "$TAG" | grep -q .; then
+            echo "::error::tag $TAG already exists on origin"
+            exit 1
+          fi
+          if git ls-remote --heads origin "$BRANCH" | grep -q .; then
+            echo "::error::branch $BRANCH already exists on origin — close or delete it first"
+            exit 1
+          fi
+
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"             >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH"       >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------------
+      # 3. Bump appinfo/info.xml
+      # -----------------------------------------------------------------------
+      - name: Update appinfo/info.xml
+        env:
+          OLD: ${{ steps.current.outputs.current }}
+          NEW: ${{ steps.new.outputs.version }}
+        run: |
+          sed -i "s|<version>${OLD}</version>|<version>${NEW}</version>|" appinfo/info.xml
+
+          WRITTEN=$(grep -oP '(?<=<version>)[^<]+' appinfo/info.xml | tr -d '[:space:]')
+          if [[ "$WRITTEN" != "$NEW" ]]; then
+            echo "::error::info.xml shows '$WRITTEN', expected '$NEW'"
+            exit 1
+          fi
+          echo "info.xml: $OLD -> $NEW"
+
+      # -----------------------------------------------------------------------
+      # 4. Update CHANGELOG.md
+      #
+      # Promotes ## [Unreleased] content to the new versioned entry.
+      # If [Unreleased] is empty, falls back to a generic "Version bump"
+      # entry. Resets [Unreleased] to empty for the next cycle.
+      # -----------------------------------------------------------------------
+      - name: Update CHANGELOG.md
+        env:
+          OLD: ${{ steps.current.outputs.current }}
+          NEW: ${{ steps.new.outputs.version }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+
+          UNRELEASED=$(awk '
+            /^## \[Unreleased\]/ { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md | sed '/^[[:space:]]*$/d')
+
+          if [[ -z "$UNRELEASED" ]]; then
+            BODY="### Changed"$'\n'"- Version bump from ${OLD} to ${NEW}."
+          else
+            BODY="$UNRELEASED"
+          fi
+
+          printf '\n## %s - %s\n\n%s\n\n' "${NEW}" "${DATE}" "${BODY}" \
+            > /tmp/changelog-entry.md
+
+          awk '
+            /^## \[Unreleased\]/ { found=1 }
+            found && /^## / && !/\[Unreleased\]/ { exit }
+            !found { print }
+          ' CHANGELOG.md > /tmp/changelog-new.md
+
+          printf '\n## [Unreleased]\n' >> /tmp/changelog-new.md
+          cat /tmp/changelog-entry.md >> /tmp/changelog-new.md
+
+          awk '
+            /^## \[Unreleased\]/ { inUnreleased=1; next }
+            inUnreleased && /^## / && !/\[Unreleased\]/ { inUnreleased=0; past=1 }
+            past { print }
+          ' CHANGELOG.md >> /tmp/changelog-new.md
+
+          mv /tmp/changelog-new.md CHANGELOG.md
+          echo "CHANGELOG.md updated: added entry for ${NEW}"
+
+      # -----------------------------------------------------------------------
+      # 5. Commit on a new release/vX.Y.Z branch and push
+      # -----------------------------------------------------------------------
+      - name: Create release branch and commit
+        env:
+          OLD:    ${{ steps.current.outputs.current }}
+          NEW:    ${{ steps.new.outputs.version }}
+          TAG:    ${{ steps.new.outputs.tag }}
+          BRANCH: ${{ steps.new.outputs.branch }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$BRANCH"
+          git add appinfo/info.xml CHANGELOG.md
+          git commit -m "chore(release): bump version ${OLD} → ${NEW}"
+
+          # release/* is not a protected ref; main is
+          git push origin "$BRANCH"
+          echo "Pushed: $BRANCH"
+
+      # -----------------------------------------------------------------------
+      # 6. Ensure 'release' label exists, then open the PR
+      # -----------------------------------------------------------------------
+      - name: Ensure 'release' label exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Idempotent — `--force` updates the label if it already exists.
+          # release-publish.yml filters PR-merge events on this exact label.
+          gh label create release \
+            --color C5DEF5 \
+            --description "Release prep PR — auto-publishes on merge" \
+            --force
+
+      - name: Open release PR
+        id: pr
+        env:
+          GH_TOKEN:    ${{ secrets.GITHUB_TOKEN }}
+          OLD:         ${{ steps.current.outputs.current }}
+          NEW:         ${{ steps.new.outputs.version }}
+          TAG:         ${{ steps.new.outputs.tag }}
+          BRANCH:      ${{ steps.new.outputs.branch }}
+          BUMP:        ${{ inputs.bump_type }}
+          PRERELEASE:  ${{ inputs.prerelease }}
+        run: |
+          # The HTML-comment markers are parsed by release-publish.yml
+          # off the merged PR's body — they survive squash-and-merge
+          # because the PR body is independent of the commit message.
+          BODY=$(cat <<EOF
+          Automated release prep — bumps **${OLD} → ${NEW}** (${BUMP}).
+
+          When this PR merges into \`main\`, the **Release — Publish**
+          workflow fires automatically and:
+
+          - Tags the merge commit as \`${TAG}\`
+          - Builds the App Store tarball
+          - Creates a GitHub Release with the tarball attached
+          - Polls GitHub's CDN until the asset is gzip-valid + tar-valid + SHA-256 matches
+          - Signs the verified tarball and posts to the Nextcloud App Store
+
+          Pre-release: \`${PRERELEASE}\`
+
+          <!-- release-publish:prerelease=${PRERELEASE} -->
+          <!-- release-publish:bump=${BUMP} -->
+          EOF
+          )
+
+          PR_URL=$(gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(release): ${TAG}" \
+            --body "$BODY" \
+            --label release)
+
+          echo "Opened: $PR_URL"
+          echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------------
+      # 7. Trigger CI on the release branch via workflow_dispatch
+      #
+      # Pushes/PRs created with GITHUB_TOKEN do not trigger downstream
+      # workflows — workflow_dispatch IS the exception. ci.yml and
+      # integration.yml each declare a workflow_dispatch trigger; calling
+      # them here gives the PR's required-checks gate something to gate on
+      # without a PAT.
+      # -----------------------------------------------------------------------
+      - name: Trigger CI on the release branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH:   ${{ steps.new.outputs.branch }}
+        run: |
+          gh workflow run ci.yml          --ref "$BRANCH"
+          gh workflow run integration.yml --ref "$BRANCH"
+          echo "Triggered ci.yml + integration.yml on $BRANCH"
+
+      - name: Print next steps
+        env:
+          PR_URL: ${{ steps.pr.outputs.url }}
+        run: |
+          echo "::notice title=Release prep PR opened::Review and merge: $PR_URL"
+          echo "Once merged, release-publish.yml fires automatically."
