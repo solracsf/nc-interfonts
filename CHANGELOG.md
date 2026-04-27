@@ -12,7 +12,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
 
+
 ## [Unreleased]
+
+## 2.1.0 - 2026-04-27
+
+### Changed
+- Version bump from 2.0.4 to 2.1.0.
 
 ## 2.0.4 - 2026-04-09
 
