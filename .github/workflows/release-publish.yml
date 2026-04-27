@@ -1,0 +1,377 @@
+# SPDX-FileCopyrightText: 2026 Inter Fonts App Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# .github/workflows/release-publish.yml
+#
+# Phase 2 of 2 in the branch-protection-friendly release flow.
+#
+# Triggered automatically when a release-prep PR (label: `release`)
+# merges into main, OR manually via workflow_dispatch (e.g. to retry
+# after a partial failure where the tag exists but the App Store
+# upload didn't complete).
+#
+# What this does (mirrors phase 6+ of the previous single-shot release.yml):
+#
+#   1. Reads the now-bumped version from main's appinfo/info.xml
+#   2. Verifies the corresponding tag does not already exist
+#   3. Creates + pushes the annotated git tag — tags are NOT covered
+#      by the branch ruleset that gates main, so this works without a
+#      personal access token
+#   4. Builds release notes
+#   5. Builds the App Store tarball (interfonts/ folder, runtime files only;
+#      same allowlist as integration.yml's tarball-dry-run job)
+#   6. Publishes the GitHub Release with the tarball attached
+#   7. Polls GitHub's CDN until the asset is gzip-valid + tar-valid +
+#      SHA-256 matches the locally built tarball — bridges the
+#      propagation delay between asset upload and CDN serving
+#   8. Signs the (CDN-verified) tarball with APP_PRIVATE_KEY and POSTs
+#      to the Nextcloud App Store API. Skipped gracefully when
+#      APPSTORE_TOKEN is not configured.
+#
+# Why two workflows?
+# ------------------
+# Branch protection on main requires all changes via PR + 16/16 required
+# checks. A direct `git push origin main` from CI is rejected. Splitting
+# into prepare-PR + publish-on-merge keeps the existing protections
+# intact while preserving zero-touch releases.
+
+name: Release — Publish
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: "Mark the GitHub Release as pre-release"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: write   # push tag + create GitHub Release
+
+jobs:
+  publish:
+    name: Tag, build & publish release
+    runs-on: ubuntu-latest
+    # Only fire on:
+    #   - manual workflow_dispatch (recovery scenarios), OR
+    #   - a release-prep PR that actually merged (not just closed).
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true &&
+       contains(github.event.pull_request.labels.*.name, 'release'))
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # -----------------------------------------------------------------------
+      # 1. Resolve the version + prerelease flag from main + (PR body | input)
+      # -----------------------------------------------------------------------
+      - name: Resolve release metadata
+        id: meta
+        env:
+          PR_BODY:           ${{ github.event.pull_request.body }}
+          INPUT_PRERELEASE:  ${{ inputs.prerelease }}
+          EVENT:             ${{ github.event_name }}
+        run: |
+          VERSION=$(grep -oP '(?<=<version>)[^<]+' appinfo/info.xml | tr -d '[:space:]')
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::unexpected version in info.xml: '$VERSION'"
+            exit 1
+          fi
+          TAG="v${VERSION}"
+
+          # On PR-merge: read prerelease from the body marker that
+          # release-prepare.yml embedded. On manual dispatch: use the input.
+          if [ "$EVENT" = "pull_request" ]; then
+            PRERELEASE=$(printf '%s' "$PR_BODY" \
+              | grep -oP 'release-publish:prerelease=\K[a-z]+' \
+              | head -1)
+          else
+            PRERELEASE="$INPUT_PRERELEASE"
+          fi
+          [ -z "$PRERELEASE" ] && PRERELEASE="false"
+
+          echo "Version    : $VERSION"
+          echo "Tag        : $TAG"
+          echo "Prerelease : $PRERELEASE"
+
+          echo "version=$VERSION"        >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"                >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE"  >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------------
+      # 2. Verify tag does not already exist (locally OR on origin)
+      # -----------------------------------------------------------------------
+      - name: Verify tag does not exist
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::tag $TAG already exists locally — main is at a stale revision?"
+            exit 1
+          fi
+          if git ls-remote --tags origin "$TAG" | grep -q .; then
+            echo "::error::tag $TAG already exists on origin"
+            exit 1
+          fi
+
+      # -----------------------------------------------------------------------
+      # 3. Create + push annotated tag
+      # -----------------------------------------------------------------------
+      - name: Create + push annotated tag
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "$TAG" \
+            -m "Release ${TAG}" \
+            -m "Released  : $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push origin "$TAG"
+          echo "Pushed tag: $TAG"
+
+      # -----------------------------------------------------------------------
+      # 4. Build release notes
+      # -----------------------------------------------------------------------
+      - name: Build release notes
+        env:
+          NEW:       ${{ steps.meta.outputs.version }}
+          TAG:       ${{ steps.meta.outputs.tag }}
+          REPO_URL:  ${{ github.server_url }}/${{ github.repository }}
+          ACTOR:     ${{ github.actor }}
+        run: |
+          if [[ -f fonts/inter-version.txt ]]; then
+            INTER=$(cat fonts/inter-version.txt | tr -d '[:space:]')
+          else
+            INTER="unknown"
+          fi
+
+          cat > /tmp/release-notes.md << EOF
+          ## Inter Fonts ${NEW}
+
+          | | |
+          |---|---|
+          | **Version** | \`${NEW}\` |
+          | **Bundled Inter** | ${INTER} |
+          | **Released by** | [@${ACTOR}](${REPO_URL%/*}/${ACTOR}) |
+
+          ## Installation
+
+          \`\`\`bash
+          TAG=${TAG}
+          curl -fsSL "https://github.com/solracsf/nc-interfonts/releases/download/\${TAG}/interfonts.tar.gz" \
+            -o /tmp/interfonts.tar.gz
+          tar -xzf /tmp/interfonts.tar.gz -C /var/www/nextcloud/apps/
+          chown -R www-data:www-data /var/www/nextcloud/apps/interfonts/
+          sudo -u www-data php /var/www/nextcloud/occ app:enable interfonts
+          \`\`\`
+
+          See the full [CHANGELOG](${REPO_URL}/blob/${TAG}/CHANGELOG.md) for details.
+
+          ---
+          _Published by the [Release — Publish](${REPO_URL}/actions/workflows/release-publish.yml) workflow._
+          EOF
+
+      # -----------------------------------------------------------------------
+      # 5. Build the App Store tarball
+      #
+      # The Nextcloud App Store requires a .tar.gz whose top-level folder
+      # name matches <id> in info.xml exactly ("interfonts").
+      # The auto-generated GitHub source archive has folder name
+      # "nc-interfonts-X.Y.Z/" and includes dev files — unsuitable.
+      #
+      # The allowlist below MUST match integration.yml's tarball-dry-run
+      # job — the dry-run runs on every PR and asserts these contents
+      # (plus that no dev files leak in), so any drift here would have
+      # been caught before merge.
+      # -----------------------------------------------------------------------
+      - name: Build app store tarball
+        run: |
+          APP_DIR=/tmp/build/interfonts
+          mkdir -p "${APP_DIR}"
+
+          cp -r appinfo fonts img lib LICENSES "${APP_DIR}/"
+          cp COPYING README.md CHANGELOG.md "${APP_DIR}/"
+
+          tar -czf /tmp/interfonts.tar.gz -C /tmp/build interfonts
+
+          echo "Tarball top level:"
+          tar -tzf /tmp/interfonts.tar.gz | grep -E '^interfonts/[^/]+/?$' | sort
+
+          echo "Tarball size: $(du -sh /tmp/interfonts.tar.gz | cut -f1)"
+
+      # -----------------------------------------------------------------------
+      # 6. Publish GitHub Release with the tarball attached
+      # -----------------------------------------------------------------------
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN:    ${{ secrets.GITHUB_TOKEN }}
+          TAG:         ${{ steps.meta.outputs.tag }}
+          NEW:         ${{ steps.meta.outputs.version }}
+          PRERELEASE:  ${{ steps.meta.outputs.prerelease }}
+        run: |
+          PRERELEASE_FLAG=""
+          if [[ "$PRERELEASE" == "true" ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          gh release create "$TAG" \
+            --title "Inter Fonts ${NEW}" \
+            --notes-file /tmp/release-notes.md \
+            --latest \
+            /tmp/interfonts.tar.gz \
+            $PRERELEASE_FLAG
+
+          echo "Published: $TAG"
+          echo "URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${TAG}"
+
+      # -----------------------------------------------------------------------
+      # 7. Wait for the release asset to be served correctly by GitHub's CDN
+      #
+      # GitHub's CDN can take a few seconds to propagate a newly uploaded
+      # release asset. The Nextcloud App Store downloads the tarball from
+      # this same URL right after we POST it. If the CDN isn't ready yet,
+      # the App Store receives an HTML redirect or empty body and rejects
+      # with: "interfonts.tar.gz is not a valid tar.gz archive".
+      #
+      # This step polls the download URL up to ~60 s and validates:
+      #   - HTTP 200
+      #   - file(1) reports "gzip compressed"
+      #   - tar -tzf lists at least one interfonts/ entry
+      #   - SHA-256 matches the locally built tarball byte-for-byte
+      # On success the local copy is replaced with the verified CDN copy
+      # so the signature in step 8 covers the exact bytes the App Store
+      # will download.
+      # -----------------------------------------------------------------------
+      - name: Verify release asset on CDN
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/interfonts.tar.gz"
+          LOCAL="/tmp/interfonts.tar.gz"
+          REMOTE="/tmp/interfonts-cdn.tar.gz"
+          MAX_ATTEMPTS=12
+          SLEEP_SECS=5
+
+          echo "Waiting for CDN: ${DOWNLOAD_URL}"
+
+          LOCAL_SHA=$(sha256sum "${LOCAL}" | awk '{print $1}')
+          echo "Local SHA-256 : ${LOCAL_SHA}"
+
+          for attempt in $(seq 1 ${MAX_ATTEMPTS}); do
+            echo "--- Attempt ${attempt}/${MAX_ATTEMPTS} ---"
+
+            HTTP_STATUS=$(curl -sL -o "${REMOTE}" -w "%{http_code}" \
+              --retry 0 --max-time 30 \
+              "${DOWNLOAD_URL}")
+
+            echo "HTTP status: ${HTTP_STATUS}"
+
+            if [[ "${HTTP_STATUS}" != "200" ]]; then
+              echo "Non-200 response; retrying in ${SLEEP_SECS}s…"
+              sleep ${SLEEP_SECS}
+              continue
+            fi
+
+            FILE_TYPE=$(file -b "${REMOTE}")
+            echo "file(1) says: ${FILE_TYPE}"
+            if ! echo "${FILE_TYPE}" | grep -qi "gzip compressed"; then
+              echo "Not a gzip file yet; retrying in ${SLEEP_SECS}s…"
+              sleep ${SLEEP_SECS}
+              continue
+            fi
+
+            if ! tar -tzf "${REMOTE}" 2>/dev/null | grep -q '^interfonts/'; then
+              echo "tar listing invalid or missing interfonts/ prefix; retrying in ${SLEEP_SECS}s…"
+              sleep ${SLEEP_SECS}
+              continue
+            fi
+
+            REMOTE_SHA=$(sha256sum "${REMOTE}" | awk '{print $1}')
+            echo "Remote SHA-256: ${REMOTE_SHA}"
+
+            if [[ "${REMOTE_SHA}" != "${LOCAL_SHA}" ]]; then
+              echo "SHA-256 mismatch — CDN may still be propagating; retrying in ${SLEEP_SECS}s…"
+              sleep ${SLEEP_SECS}
+              continue
+            fi
+
+            echo "✓ CDN asset verified: gzip-valid, tar-valid, SHA-256 matches."
+            cp "${REMOTE}" "${LOCAL}"
+            exit 0
+          done
+
+          echo "::error::release asset could not be verified after ${MAX_ATTEMPTS} attempts"
+          exit 1
+
+      # -----------------------------------------------------------------------
+      # 8. Sign tarball and publish to the Nextcloud App Store
+      #
+      # Skipped if APPSTORE_TOKEN is not configured (before the app is
+      # registered on the store for the first time).
+      # -----------------------------------------------------------------------
+      - name: Publish to Nextcloud App Store
+        env:
+          GH_TOKEN:        ${{ secrets.GITHUB_TOKEN }}
+          TAG:             ${{ steps.meta.outputs.tag }}
+          APPSTORE_TOKEN:  ${{ secrets.APPSTORE_TOKEN }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+          PRERELEASE:      ${{ steps.meta.outputs.prerelease }}
+        run: |
+          if [[ -z "${APPSTORE_TOKEN}" ]]; then
+            echo "APPSTORE_TOKEN not configured — skipping App Store publish."
+            exit 0
+          fi
+
+          if [[ -z "${APP_PRIVATE_KEY}" ]]; then
+            echo "::error::APP_PRIVATE_KEY secret is not set"
+            exit 1
+          fi
+
+          echo "${APP_PRIVATE_KEY}" > /tmp/interfonts.key
+          chmod 600 /tmp/interfonts.key
+
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/interfonts.tar.gz"
+
+          # Sign the CDN-verified copy of the tarball, so the signature
+          # covers the exact bytes the App Store will download.
+          SIGNATURE=$(openssl dgst -sha512 \
+            -sign /tmp/interfonts.key \
+            /tmp/interfonts.tar.gz \
+            | openssl base64 -A)
+
+          NIGHTLY="false"
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            NIGHTLY="true"
+          fi
+
+          HTTP_STATUS=$(curl -s -o /tmp/appstore-response.json -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Token ${APPSTORE_TOKEN}" \
+            -H "Content-Type: application/json; charset=utf8" \
+            "https://apps.nextcloud.com/api/v1/apps/releases" \
+            -d "{\"download\": \"${DOWNLOAD_URL}\", \"signature\": \"${SIGNATURE}\", \"nightly\": ${NIGHTLY}}")
+
+          echo "App Store HTTP status: ${HTTP_STATUS}"
+          cat /tmp/appstore-response.json
+
+          # 200 = updated, 201 = created
+          if [[ "${HTTP_STATUS}" != "200" && "${HTTP_STATUS}" != "201" ]]; then
+            echo "::error::App Store API returned HTTP ${HTTP_STATUS}"
+            exit 1
+          fi
+
+          echo "Successfully published to the Nextcloud App Store."
