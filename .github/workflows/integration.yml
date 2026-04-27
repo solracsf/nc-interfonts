@@ -1,0 +1,249 @@
+# SPDX-FileCopyrightText: 2026 Inter Fonts App Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# .github/workflows/integration.yml
+#
+# End-to-end integration test. For every supported Nextcloud major
+# (32–35 per appinfo/info.xml), this workflow:
+#
+#   1. Pulls the official `nextcloud:N-apache` Docker image
+#   2. Spins up the container with SQLite (no separate DB service —
+#      keeps each matrix entry fully self-contained)
+#   3. Copies the app into /var/www/html/custom_apps/interfonts using
+#      the SAME allowlist that release.yml ships to the App Store, so
+#      we test the production deliverable rather than the dev tree
+#   4. Enables the app via `occ app:enable`
+#   5. Smoke-tests the actual HTTP endpoints with curl:
+#       - GET /apps/interfonts/stylesheet?v=<ver> returns text/css
+#         with @font-face rules + the Inter font-family
+#       - GET /apps/interfonts/font/<filename> returns font/woff2
+#         with the correct cache and CORS headers, and the body
+#         starts with the WOFF2 magic bytes (0x77 4F 46 32 = "wOF2")
+#       - GET /login HTML contains both preload <link>s and the
+#         stylesheet <link> — exercises the
+#         BeforeLoginTemplateRenderedEvent listener path
+#
+# Why curl + assertions instead of a browser harness?
+# - Curl tests every wire-level invariant we actually care about
+#   (status code, headers, body bytes) at <1s per request, with
+#   zero browser-driver flake.
+# - The CSS engine and font-face semantics are universally browser-
+#   tested upstream; what we own is the HTTP surface.
+#
+# fail-fast: false so one NC version's regression doesn't mask the
+# others.
+#
+# Matrix scope: Nextcloud majors that currently have a published
+# Docker image on Docker Hub (`nextcloud:N-apache`). appinfo/info.xml
+# declares support up to NC 35, but NC 34 and 35 had not been
+# released as images at the time this workflow was authored — add
+# them to the matrix below once they appear, no other change needed.
+
+name: Integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-test:
+    name: Nextcloud ${{ matrix.nextcloud }} smoke test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Extend to '34', '35' once those majors are published on
+        # Docker Hub. The rest of the workflow is version-agnostic.
+        nextcloud: ['32', '33']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Build the release-shape app directory
+        # Mirrors the release.yml allowlist so the integration test
+        # exercises exactly what gets shipped to users — not the dev
+        # tree (which contains tests/, vendor/, .github/, etc.).
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/app/interfonts
+          cp -r appinfo fonts img lib LICENSES /tmp/app/interfonts/
+          cp COPYING README.md CHANGELOG.md /tmp/app/interfonts/
+          echo "--- shipped files ---"
+          find /tmp/app/interfonts -maxdepth 2 -type f | sort
+
+      - name: Spin up Nextcloud ${{ matrix.nextcloud }}
+        run: |
+          set -euo pipefail
+          docker run -d --name nc \
+            -p 8080:80 \
+            -e SQLITE_DATABASE=nextcloud \
+            -e NEXTCLOUD_ADMIN_USER=admin \
+            -e NEXTCLOUD_ADMIN_PASSWORD=admin \
+            -e NEXTCLOUD_TRUSTED_DOMAINS=localhost \
+            "nextcloud:${{ matrix.nextcloud }}-apache"
+
+      - name: Wait for Nextcloud to finish initial install
+        run: |
+          set -euo pipefail
+          # Apache starts after the entrypoint's auto-installer exits.
+          # status.php returns {"installed":true,...} once the install
+          # finishes — usually within ~30-60s on a clean SQLite boot.
+          for i in $(seq 1 60); do
+            sleep 5
+            STATUS=$(curl -sS http://localhost:8080/status.php 2>/dev/null || true)
+            if printf '%s' "$STATUS" | grep -q '"installed":true'; then
+              echo "Nextcloud ready after $((i*5))s"
+              echo "$STATUS"
+              exit 0
+            fi
+            echo "[$i/60] not ready yet"
+          done
+          echo "::error::Nextcloud did not finish installing within 5 minutes"
+          docker logs nc 2>&1 | tail -200 || true
+          exit 1
+
+      - name: Install the Inter Fonts app into the container
+        run: |
+          set -euo pipefail
+          docker cp /tmp/app/interfonts nc:/var/www/html/custom_apps/interfonts
+          docker exec --user root nc \
+            chown -R www-data:www-data /var/www/html/custom_apps/interfonts
+          docker exec --user www-data nc php occ app:enable interfonts
+          # Sanity check: app appears in `app:list` (the format of this
+          # output varies across NC versions; a substring match is the
+          # most stable assertion).
+          docker exec --user www-data nc php occ app:list | grep -F interfonts
+
+      - name: Warm up route cache
+        # The first request after `occ app:enable` can return 404 because
+        # Apache prefork workers carry their own PHP opcache and only
+        # rebuild the route map on the stale-route miss. We make a few
+        # throwaway requests so every worker that subsequent tests might
+        # land on has rebuilt its routes. Confirmed via local repro:
+        # without warmup attempt 1 returns 404, attempt 2 returns 200 —
+        # adding warmup makes the smoke tests deterministic.
+        run: |
+          for i in 1 2 3 4 5; do
+            curl -fsS -o /dev/null \
+              "http://localhost:8080/apps/interfonts/stylesheet?v=warmup-$i" || true
+            sleep 1
+          done
+
+      - name: Smoke-test — stylesheet endpoint
+        run: |
+          set -euo pipefail
+          VER=$(grep -oP '(?<=<version>)[^<]+' appinfo/info.xml | tr -d '[:space:]')
+          URL="http://localhost:8080/apps/interfonts/stylesheet?v=${VER}"
+
+          echo "GET $URL"
+          HTTP=$(curl -sS -o /tmp/css.out -w '%{http_code}' "$URL")
+          test "$HTTP" = "200" || {
+            echo "::error::expected 200, got $HTTP"
+            cat /tmp/css.out
+            exit 1
+          }
+
+          HEADERS=$(curl -sSI "$URL")
+          echo "--- response headers ---"
+          echo "$HEADERS"
+
+          echo "$HEADERS" | grep -qi '^content-type: text/css'        || { echo "::error::wrong Content-Type"; exit 1; }
+          echo "$HEADERS" | grep -qi '^cache-control:.*immutable'    || { echo "::error::missing immutable Cache-Control"; exit 1; }
+          echo "$HEADERS" | grep -qi '^x-content-type-options: nosniff' || { echo "::error::missing nosniff"; exit 1; }
+
+          grep -q '@font-face'                /tmp/css.out || { echo "::error::no @font-face block";    exit 1; }
+          grep -q "'InterVariable'"            /tmp/css.out || { echo "::error::Inter font-family missing"; exit 1; }
+          grep -q "'InterVariable Fallback'"   /tmp/css.out || { echo "::error::metric-fallback missing";   exit 1; }
+          grep -q 'apps/interfonts/font/'      /tmp/css.out || { echo "::error::font src URL missing";       exit 1; }
+          echo "Stylesheet OK ($(wc -c </tmp/css.out) bytes)"
+
+      - name: Smoke-test — font binary endpoint
+        run: |
+          set -euo pipefail
+          IVER=$(tr -d '[:space:]' < fonts/inter-version.txt | sed 's/^v//')
+          URL="http://localhost:8080/apps/interfonts/font/InterVariable-${IVER}.woff2"
+
+          echo "GET $URL"
+          HTTP=$(curl -sS -o /tmp/font.bin -w '%{http_code}' "$URL")
+          test "$HTTP" = "200" || { echo "::error::expected 200, got $HTTP"; exit 1; }
+
+          HEADERS=$(curl -sSI "$URL")
+          echo "--- response headers ---"
+          echo "$HEADERS"
+
+          echo "$HEADERS" | grep -qi '^content-type: font/woff2'                    || { echo "::error::wrong Content-Type"; exit 1; }
+          echo "$HEADERS" | grep -qi '^cache-control:.*immutable'                  || { echo "::error::missing immutable cache"; exit 1; }
+          echo "$HEADERS" | grep -qi '^x-content-type-options: nosniff'            || { echo "::error::missing nosniff"; exit 1; }
+          echo "$HEADERS" | grep -qiE '^access-control-allow-origin:[[:space:]]*\*' || { echo "::error::missing wildcard CORS"; exit 1; }
+
+          # WOFF2 magic bytes: 0x77 0x4F 0x46 0x32 = "wOF2"
+          MAGIC=$(head -c 4 /tmp/font.bin | xxd -p)
+          test "$MAGIC" = "774f4632" || {
+            echo "::error::body is not a WOFF2 (first 4 bytes = 0x$MAGIC, expected 0x774f4632)"
+            exit 1
+          }
+          echo "Font OK ($(wc -c </tmp/font.bin) bytes, WOFF2 magic verified)"
+
+      - name: Smoke-test — italic font endpoint
+        run: |
+          set -euo pipefail
+          IVER=$(tr -d '[:space:]' < fonts/inter-version.txt | sed 's/^v//')
+          URL="http://localhost:8080/apps/interfonts/font/InterVariable-Italic-${IVER}.woff2"
+
+          HTTP=$(curl -sS -o /tmp/italic.bin -w '%{http_code}' "$URL")
+          test "$HTTP" = "200" || { echo "::error::expected 200, got $HTTP"; exit 1; }
+
+          MAGIC=$(head -c 4 /tmp/italic.bin | xxd -p)
+          test "$MAGIC" = "774f4632" || { echo "::error::italic is not a WOFF2 (magic=0x$MAGIC)"; exit 1; }
+          echo "Italic font OK ($(wc -c </tmp/italic.bin) bytes)"
+
+      - name: Smoke-test — non-allowlisted filename returns 404
+        run: |
+          set -euo pipefail
+          # Path traversal is impossible (route regex + basename) but
+          # we still verify the allowlist itself rejects unknown files.
+          URL="http://localhost:8080/apps/interfonts/font/EvilFont-1.0.woff2"
+          HTTP=$(curl -sS -o /dev/null -w '%{http_code}' "$URL")
+          test "$HTTP" = "404" || {
+            echo "::error::expected 404 for non-allowlisted filename, got $HTTP"
+            exit 1
+          }
+          echo "Allowlist correctly rejects unknown filenames (404)"
+
+      - name: Smoke-test — login page injects preload + stylesheet
+        run: |
+          set -euo pipefail
+          # /login is unauthenticated → exercises the listener's
+          # BeforeLoginTemplateRenderedEvent registration. If only
+          # BeforeTemplateRenderedEvent were registered, this page
+          # would render without the Inter assets — a regression
+          # this assertion catches.
+          curl -sSL http://localhost:8080/login -o /tmp/login.html
+
+          grep -qE '<link[^>]*rel="preload"[^>]*as="font"' /tmp/login.html \
+            || { echo "::error::no preload <link rel=preload as=font> in login page"; head -200 /tmp/login.html; exit 1; }
+          grep -q 'apps/interfonts/font/InterVariable-' /tmp/login.html \
+            || { echo "::error::Inter font URL missing from login page"; exit 1; }
+          grep -q 'apps/interfonts/font/InterVariable-Italic-' /tmp/login.html \
+            || { echo "::error::Italic font URL missing from login page"; exit 1; }
+          grep -q 'apps/interfonts/stylesheet' /tmp/login.html \
+            || { echo "::error::stylesheet URL missing from login page"; exit 1; }
+          echo "Login page injects roman + italic preload + stylesheet"
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: |
+          echo "--- docker ps -a ---"
+          docker ps -a || true
+          echo "--- docker logs nc (tail 300) ---"
+          docker logs nc 2>&1 | tail -300 || true
+          echo "--- nextcloud.log (tail 300) ---"
+          docker exec --user www-data nc cat /var/www/html/data/nextcloud.log 2>/dev/null | tail -300 || true
+          echo "--- enabled apps ---"
+          docker exec --user www-data nc php occ app:list 2>&1 || true

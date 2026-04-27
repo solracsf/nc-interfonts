@@ -12,6 +12,7 @@ namespace OCA\InterFonts\Controller;
 use OCA\InterFonts\AppInfo\Application;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
+use OCP\AppFramework\Http\Attribute\FrontpageRoute;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\Attribute\PublicPage;
@@ -71,7 +72,7 @@ use OCP\IURLGenerator;
  * stylesheet URL is cache-busted by app version via ?v= in the listener,
  * and font binary URLs are cache-busted by Inter version in the filename.
  */
-class CSSController extends Controller {
+final class CSSController extends Controller {
 
     public function __construct(
         IRequest $request,
@@ -86,17 +87,18 @@ class CSSController extends Controller {
      * Route: GET /apps/interfonts/stylesheet
      * Injected into every page via Util::addHeader() in the listener.
      */
+    #[FrontpageRoute(verb: 'GET', url: '/stylesheet')]
     #[PublicPage]
     #[NoCSRFRequired]
     #[NoAdminRequired]
     public function stylesheet(): DataDisplayResponse {
         $romanUrl = $this->urlGenerator->linkToRoute(
-            'interfonts.Font.serve',
-            ['filename' => Application::romanFontFilename()]
+            Application::ROUTE_FONT,
+            ['filename' => Application::romanFontFilename()],
         );
         $italicUrl = $this->urlGenerator->linkToRoute(
-            'interfonts.Font.serve',
-            ['filename' => Application::italicFontFilename()]
+            Application::ROUTE_FONT,
+            ['filename' => Application::italicFontFilename()],
         );
 
         // Defensive: linkToRoute should never produce single-quotes, but

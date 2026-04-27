@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Inter Fonts App Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 # Compiled assets
 /js/*.js.map
 /css/*.css.map
@@ -5,6 +8,17 @@
 # Node / build tools
 node_modules/
 npm-debug.log
+
+# Composer / PHPUnit (dev only — never shipped in the release tarball)
+/vendor/
+/composer.lock
+/.phpunit.cache/
+/.phpunit.result.cache
+
+# Build artefacts
+/build/
+/dist/
+*.tar.gz
 
 # IDE
 .idea/

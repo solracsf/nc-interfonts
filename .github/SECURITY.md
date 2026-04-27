@@ -1,3 +1,8 @@
+<!--
+  - SPDX-FileCopyrightText: 2026 Inter Fonts App Contributors
+  - SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+
 # Security Policy
 
 ## Supported Versions
@@ -49,11 +54,13 @@ If a vulnerability requires more time to address, the maintainer will communicat
 This security policy covers the **Inter Fonts** Nextcloud app (`nc-interfonts`) only.
 
 **In scope:**
+
 - PHP code under `lib/`
 - App metadata under `appinfo/`
 - Font loading and injection mechanisms
 
 **Out of scope:**
+
 - The **Inter** typeface itself (maintained by [Rasmus Andersson](https://rsms.me/inter/))
 - Vulnerabilities in Nextcloud core or its dependencies
 - Issues in third-party servers or hosting environments

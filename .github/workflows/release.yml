@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Inter Fonts App Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
 # .github/workflows/release.yml
 #
 # Publishes a release of the Inter Fonts Nextcloud app directly from the
@@ -71,7 +74,7 @@ jobs:
       # 1. Checkout with full history so we can commit & tag
       # -----------------------------------------------------------------------
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -323,8 +326,12 @@ jobs:
 
           mkdir -p "${APP_DIR}"
 
-          # Copy only files needed at runtime
-          cp -r appinfo fonts img lib "${APP_DIR}/"
+          # Copy only files needed at runtime + license texts.
+          # LICENSES/ holds the canonical SPDX-tagged texts (AGPL-3.0-or-later
+          # for the app, OFL-1.1 for the bundled Inter font); shipping it lets
+          # downstream packagers and REUSE-aware tooling verify provenance
+          # without re-fetching from the source repo.
+          cp -r appinfo fonts img lib LICENSES "${APP_DIR}/"
           cp COPYING README.md CHANGELOG.md "${APP_DIR}/"
 
           tar -czf /tmp/interfonts.tar.gz -C /tmp/build interfonts

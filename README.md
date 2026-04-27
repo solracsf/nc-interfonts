@@ -1,3 +1,8 @@
+<!--
+  - SPDX-FileCopyrightText: 2026 Inter Fonts App Contributors
+  - SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+
 # Inter Fonts — Nextcloud App
 
 [![Nextcloud](https://img.shields.io/badge/Nextcloud-32_to_35-0082c9.svg)](https://nextcloud.com)

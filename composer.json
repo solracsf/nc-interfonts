@@ -1,0 +1,38 @@
+{
+    "name": "solracsf/interfonts",
+    "description": "Inter Fonts for Nextcloud — replaces every UI font with the self-hosted Inter variable font.",
+    "license": "AGPL-3.0-or-later",
+    "type": "project",
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true,
+        "platform": {
+            "php": "8.2"
+        }
+    },
+    "require": {
+        "php": ">=8.2"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "OCA\\InterFonts\\": "lib/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "OCA\\InterFonts\\Tests\\": "tests/"
+        },
+        "files": [
+            "tests/stubs.php"
+        ],
+        "exclude-from-classmap": [
+            "tests/stubs.php"
+        ]
+    },
+    "scripts": {
+        "test": "phpunit --colors=always"
+    }
+}

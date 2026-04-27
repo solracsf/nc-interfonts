@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2026 Inter Fonts App Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Project-level shellcheck config, also picked up by actionlint when it
+# runs shellcheck against `run:` blocks in workflow YAML.
+#
+# SC2129 is a pure style preference (combine multiple >>file redirects
+# into a `{ ... } >> file` block). It flags long-stable release scripts
+# in .github/workflows/release.yml and update-inter-fonts.yml. Refactoring
+# working release code purely for style is not worth the regression risk.
+disable=SC2129,SC2002

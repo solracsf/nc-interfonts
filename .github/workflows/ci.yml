@@ -1,9 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Inter Fonts App Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
 # .github/workflows/ci.yml
 #
-# Lints PHP sources, validates appinfo/info.xml against the Nextcloud
-# app store schema, and verifies that the bundled WOFF2 filenames match
-# the version declared in fonts/inter-version.txt. Runs on every push and
-# pull request to main.
+# Lints PHP sources, runs the unit test suite, validates appinfo/info.xml
+# against the Nextcloud app store schema, and verifies that the bundled
+# WOFF2 filenames match the version declared in fonts/inter-version.txt.
+# Runs on every push and pull request to main.
 
 name: CI
 
@@ -27,10 +30,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup PHP ${{ matrix.php }}
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2
         with:
           php-version: ${{ matrix.php }}
           coverage: none
@@ -49,12 +52,37 @@ jobs:
           done < <(find lib appinfo -name '*.php' -print0)
           exit "$FAIL"
 
+  phpunit:
+    name: PHP ${{ matrix.php }} unit tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3', '8.4']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dev dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Run unit tests
+        run: vendor/bin/phpunit --colors=always
+
   info-xml:
     name: Validate appinfo/info.xml against Nextcloud schema
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Install xmllint
         run: |
@@ -87,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Check WOFF2 filenames embed the bundled version
         run: |
@@ -129,3 +157,124 @@ jobs:
           fi
 
           exit "$MISSING"
+
+  reuse:
+    name: REUSE compliance (SPDX)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: REUSE lint
+        # Verifies every committed file has either an inline SPDX header
+        # or a matching annotation in REUSE.toml. Catches drift the moment
+        # a new file is added without a license declaration.
+        uses: fsfe/reuse-action@bb774aa972c2a89ff34781233d275075cbddf542 # v5.0.0
+
+  actionlint:
+    name: actionlint (lint workflow YAML)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install actionlint and run
+        # Using the official download script + binary directly (rather than a
+        # wrapper action) so we can pass `-shellcheck` with our SC2129
+        # exclusion. SC2129 is a style preference shellcheck raises for the
+        # multiple `>>"$GITHUB_OUTPUT"` redirects in release.yml — refactoring
+        # working release scripts purely for style is not worth the regression
+        # risk; see .shellcheckrc for the matching local-tooling config.
+        run: |
+          bash <(curl --proto '=https' --tlsv1.2 -fsSL \
+            https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) \
+            >/dev/null
+          ./actionlint -color -shellcheck="shellcheck -e SC2129,SC2002"
+
+  markdownlint:
+    name: markdownlint (.md style)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Run markdownlint
+        uses: DavidAnson/markdownlint-cli2-action@992badcdf24e3b8eb7e87ff9287fe931bcb00c6e # v20.0.0
+        with:
+          globs: |
+            **/*.md
+            !**/CHANGELOG.md
+            !**/vendor/**
+            !**/node_modules/**
+
+  tarball-dry-run:
+    name: App store tarball dry-run
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Build the release tarball without publishing
+        # Mirrors the tarball-building step in release.yml so structural
+        # regressions (missing folder, accidentally-shipped dev file, wrong
+        # top-level name) surface on every PR — not in production at release
+        # time. The tarball is discarded after the structural assertions pass.
+        run: |
+          set -euo pipefail
+
+          APP_DIR=/tmp/build/interfonts
+          mkdir -p "${APP_DIR}"
+
+          # Same explicit allowlist as release.yml — keep these two in sync.
+          cp -r appinfo fonts img lib LICENSES "${APP_DIR}/"
+          cp COPYING README.md CHANGELOG.md "${APP_DIR}/"
+
+          tar -czf /tmp/interfonts.tar.gz -C /tmp/build interfonts
+
+          # Pre-extract the tarball file list once into a variable. Piping
+          # `tar -tzf | grep -q ...` directly trips `set -o pipefail`: grep -q
+          # exits early on first match, tar gets SIGPIPE (exit 141), and the
+          # pipeline as a whole reports failure even when the file IS present.
+          TARBALL_LIST=$(tar -tzf /tmp/interfonts.tar.gz)
+
+          echo "--- tarball top level ---"
+          printf '%s\n' "$TARBALL_LIST" | grep -E '^interfonts/[^/]+/?$' | sort
+
+          # Structural assertions — every required folder/file present.
+          for required in \
+              interfonts/appinfo/info.xml \
+              interfonts/lib/AppInfo/Application.php \
+              interfonts/lib/Controller/CSSController.php \
+              interfonts/lib/Controller/FontController.php \
+              interfonts/lib/Listener/BeforeTemplateRenderedListener.php \
+              interfonts/COPYING \
+              interfonts/README.md \
+              interfonts/CHANGELOG.md \
+              interfonts/fonts/inter-version.txt \
+              interfonts/img/app.svg \
+              interfonts/LICENSES/AGPL-3.0-or-later.txt \
+              interfonts/LICENSES/OFL-1.1.txt ; do
+            if ! grep -qFx "${required}" <<<"$TARBALL_LIST"; then
+              echo "::error::Required file missing from tarball: ${required}"
+              exit 1
+            fi
+          done
+
+          # Negative assertions — dev-only artefacts must NOT be in the tarball.
+          # Matches release.yml's explicit allowlist; if either drifts, this fails.
+          for forbidden in \
+              interfonts/composer.json \
+              interfonts/composer.lock \
+              interfonts/phpunit.xml.dist \
+              interfonts/REUSE.toml \
+              interfonts/tests/ \
+              interfonts/vendor/ \
+              interfonts/.github/ \
+              interfonts/.gitignore ; do
+            if grep -qF "${forbidden}" <<<"$TARBALL_LIST"; then
+              echo "::error::Dev-only path leaked into the release tarball: ${forbidden}"
+              exit 1
+            fi
+          done
+
+          echo "Tarball structure OK ($(du -h /tmp/interfonts.tar.gz | cut -f1))"

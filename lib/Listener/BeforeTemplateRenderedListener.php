@@ -55,7 +55,7 @@ use OCP\Util;
  *
  * @template-implements IEventListener<BeforeTemplateRenderedEvent|BeforeLoginTemplateRenderedEvent>
  */
-class BeforeTemplateRenderedListener implements IEventListener {
+final readonly class BeforeTemplateRenderedListener implements IEventListener {
 
     public function __construct(
         private readonly IURLGenerator $urlGenerator,
@@ -80,14 +80,14 @@ class BeforeTemplateRenderedListener implements IEventListener {
         // in CSSController) invalidates the cached stylesheet but not the
         // font binaries themselves.
         $appVersion    = $this->appManager->getAppVersion(Application::APP_ID);
-        $stylesheetUrl = $this->urlGenerator->linkToRoute('interfonts.CSS.stylesheet')
+        $stylesheetUrl = $this->urlGenerator->linkToRoute(Application::ROUTE_STYLESHEET)
             . '?v=' . rawurlencode($appVersion);
         $romanUrl      = $this->urlGenerator->linkToRoute(
-            'interfonts.Font.serve',
+            Application::ROUTE_FONT,
             ['filename' => Application::romanFontFilename()],
         );
         $italicUrl     = $this->urlGenerator->linkToRoute(
-            'interfonts.Font.serve',
+            Application::ROUTE_FONT,
             ['filename' => Application::italicFontFilename()],
         );
 
