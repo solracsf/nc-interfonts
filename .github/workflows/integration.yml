@@ -69,18 +69,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Build the release-shape app directory
-        # Mirrors the release.yml allowlist so the integration test
-        # exercises exactly what gets shipped to users — not the dev
-        # tree (which contains tests/, vendor/, .github/, etc.).
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/app/interfonts
-          cp -r appinfo fonts img lib LICENSES /tmp/app/interfonts/
-          cp COPYING README.md CHANGELOG.md /tmp/app/interfonts/
-          echo "--- shipped files ---"
-          find /tmp/app/interfonts -maxdepth 2 -type f | sort
-
       - name: Spin up Nextcloud ${{ matrix.nextcloud }}
         run: |
           set -euo pipefail
@@ -112,17 +100,86 @@ jobs:
           docker logs nc 2>&1 | tail -200 || true
           exit 1
 
-      - name: Install the Inter Fonts app into the container
+      - name: Install the Inter Fonts app into the container (via git)
+        # `occ app:enable` does not download anything — it just enables
+        # whatever's on disk under custom_apps/<id>/. To make the test's
+        # provenance unmistakable to readers, we install the app inside
+        # the container by `git clone`-ing this exact repo + checking
+        # out the precise commit under test (the PR's head SHA on
+        # pull_request events; github.sha on pushes). This guarantees
+        # we're testing the PR's tree — never an App Store release that
+        # might happen to share the same app id.
+        env:
+          # On fork PRs the head lives on a different repo; fall back to
+          # the base repo URL for push events and same-repo PRs (e.g.
+          # Dependabot).
+          HEAD_REPO_URL: ${{ github.event.pull_request.head.repo.clone_url }}
+          REPO:          ${{ github.repository }}
+          REF:           ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          docker cp /tmp/app/interfonts nc:/var/www/html/custom_apps/interfonts
-          docker exec --user root nc \
-            chown -R www-data:www-data /var/www/html/custom_apps/interfonts
+
+          CLONE_URL="${HEAD_REPO_URL:-https://github.com/${REPO}.git}"
+          echo "Cloning ${CLONE_URL} @ ${REF}"
+
+          # Install git inside the container. NC's official image is
+          # Debian-based and does not ship git by default.
+          docker exec --user root nc bash -c '
+            set -euo pipefail
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              git ca-certificates >/dev/null
+          '
+
+          # Clone the repo and check out the exact ref under test.
+          # --depth 1 + --filter=blob:none keeps it fast (~1-2 s).
+          docker exec --user root --env CLONE_URL="${CLONE_URL}" --env REF="${REF}" nc bash -c '
+            set -euo pipefail
+            mkdir -p /tmp/interfonts-src
+            git clone --no-checkout --filter=blob:none "${CLONE_URL}" /tmp/interfonts-src
+            git -C /tmp/interfonts-src fetch --depth 1 origin "${REF}"
+            git -C /tmp/interfonts-src checkout FETCH_HEAD
+
+            echo "--- commit under test ---"
+            git -C /tmp/interfonts-src log -1 --format="%H %s%n  by %an <%ae>%n  on %ai"
+          '
+
+          # Stage the tree into custom_apps/ using the SAME allowlist as
+          # the release-publish tarball (and the tarball-dry-run job in
+          # this same workflow file): only what real users will load.
+          # If these three lists ever drift, we are testing something
+          # different from what we ship.
+          docker exec --user root nc bash -c '
+            set -euo pipefail
+            APP_DIR=/var/www/html/custom_apps/interfonts
+            mkdir -p "${APP_DIR}"
+            cp -r /tmp/interfonts-src/appinfo  "${APP_DIR}/"
+            cp -r /tmp/interfonts-src/fonts    "${APP_DIR}/"
+            cp -r /tmp/interfonts-src/img      "${APP_DIR}/"
+            cp -r /tmp/interfonts-src/lib      "${APP_DIR}/"
+            cp -r /tmp/interfonts-src/LICENSES "${APP_DIR}/"
+            cp /tmp/interfonts-src/COPYING       "${APP_DIR}/"
+            cp /tmp/interfonts-src/README.md     "${APP_DIR}/"
+            cp /tmp/interfonts-src/CHANGELOG.md  "${APP_DIR}/"
+            chown -R www-data:www-data "${APP_DIR}"
+          '
+
           docker exec --user www-data nc php occ app:enable interfonts
-          # Sanity check: app appears in `app:list` (the format of this
-          # output varies across NC versions; a substring match is the
-          # most stable assertion).
-          docker exec --user www-data nc php occ app:list | grep -F interfonts
+
+          # Proof step — assert the version Nextcloud has loaded matches
+          # the version in the PR's appinfo/info.xml. If a previously
+          # released app version were somehow shadowing our install,
+          # the two would diverge and this fails loudly.
+          INSTALLED=$(docker exec --user www-data nc php occ app:list \
+            | grep -oE 'interfonts: [0-9]+\.[0-9]+\.[0-9]+' \
+            | head -1 | awk '{print $2}')
+          EXPECTED=$(grep -oP '(?<=<version>)[^<]+' appinfo/info.xml | tr -d '[:space:]')
+          echo "Installed version : ${INSTALLED}"
+          echo "Expected (PR)     : ${EXPECTED}"
+          if [ "${INSTALLED}" != "${EXPECTED}" ]; then
+            echo "::error::version mismatch — Nextcloud loaded a different interfonts than the PR"
+            exit 1
+          fi
 
       - name: Warm up route cache
         # The first request after `occ app:enable` can return 404 because
