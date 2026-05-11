@@ -16,6 +16,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Code-like elements (`<pre>`, `<code>`, `<kbd>`, `<samp>`) and CodeMirror
+  surfaces (`.cm-content`) now stay monospaced inside rich-text editors.
+  v2.0.2 added `:root [contenteditable]` to apply Inter to Tiptap/ProseMirror
+  body text; `font-family !important` then inherited into descendant `<code>`
+  and `<pre>`, breaking code blocks in the Text app markdown editor and
+  inline code in Notes/Talk/Collectives. Added a follow-up rule that
+  re-asserts **Nextcloud core's monospace stack** (`'Lucida Console',
+  'Lucida Sans Typewriter', 'DejaVu Sans Mono', monospace` — the exact stack
+  hardcoded on `code` in `core/css/styles.scss`) on code-like elements, so
+  rendering inside our editors matches the rest of the Nextcloud UI verbatim.
+  Also resets `font-feature-settings` so Inter ligatures (`==`, `!=`, `=>`)
+  cannot leak into code regions. Issue #9.
+
 ## 2.1.1 - 2026-04-27
 
 ### Changed
