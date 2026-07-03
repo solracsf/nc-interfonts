@@ -297,7 +297,7 @@ final class CSSController extends Controller {
 }
 
 /* Inter ships true italics in the variable font */
-:root em, :root i, :root cite, :root dfn, :root var, :root address, :root .italic {
+:root em, :root i:not(.fa), :root cite, :root dfn, :root var, :root address, :root .italic {
     font-style: italic;
     font-family: {$stack} !important;
 }
