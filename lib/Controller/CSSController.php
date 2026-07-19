@@ -296,8 +296,33 @@ final class CSSController extends Controller {
     font-weight: 700;
 }
 
-/* Inter ships true italics in the variable font */
-:root em, :root i:not(.fa), :root cite, :root dfn, :root var, :root address, :root .italic {
+/*
+ * Inter ships true italics in the variable font.
+ *
+ * <i> is deliberately NOT in this selector list. In Nextcloud app markup <i>
+ * is overwhelmingly an icon container rather than an italic run: FontAwesome
+ * (Passwords renders <i class="icon fa fa-{name}">; FA5/6 render
+ * <i class="fas fa-user"> / <i class="fa-solid fa-user">), Material Icons
+ * (<i class="material-icons">), Ionicons and Glyphicons all use it. Icon
+ * fonts declare their family on a class — `.fa` is (0,1,0) — so a `:root i`
+ * rule at (0,1,1) carrying !important beat every one of them and the glyphs
+ * rendered as raw Private Use Area codepoints instead of icons. PR #15.
+ *
+ * Nothing is lost by omitting <i>:
+ *  - font-style: the UA stylesheet already declares
+ *    `i, cite, em, var, address, dfn { font-style: italic }` (HTML Standard,
+ *    Rendering), so genuine italic runs stay italic without us restating it.
+ *  - font-family: <i> inherits the Inter stack from the :root/body rule
+ *    above, so italic prose still renders in Inter.
+ * The only behaviour given up is *forcing* Inter onto an <i> whose ancestor
+ * set a different font-family — which is precisely the icon-font case.
+ *
+ * Excluding one class (`i:not(.fa)`) was considered and rejected: it covers
+ * only FontAwesome 4's base class, leaves FA5/6 and every other icon font
+ * broken, and raises the rule to (0,2,1), which silently breaks downstream
+ * !important overrides on <i> that work today.
+ */
+:root em, :root cite, :root dfn, :root var, :root address, :root .italic {
     font-style: italic;
     font-family: {$stack} !important;
 }
