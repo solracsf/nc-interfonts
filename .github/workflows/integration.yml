@@ -222,6 +222,24 @@ jobs:
           grep -q "'InterVariable'"            /tmp/css.out || { echo "::error::Inter font-family missing"; exit 1; }
           grep -q "'InterVariable Fallback'"   /tmp/css.out || { echo "::error::metric-fallback missing";   exit 1; }
           grep -q 'apps/interfonts/font/'      /tmp/css.out || { echo "::error::font src URL missing";       exit 1; }
+
+          # Regression guard (PR #15): no rule may target <i>.
+          #
+          # FontAwesome, Material Icons, Ionicons and Glyphicons all render
+          # icons as <i class="fa …"> / <i class="material-icons">. Icon fonts
+          # declare their family on a class, i.e. (0,1,0); a `:root i` rule is
+          # (0,1,1), so ours won and the glyphs came out as raw Private Use
+          # Area codepoints. Genuine italics need no rule here — the UA
+          # stylesheet already italicises <i>, and the Inter stack reaches it
+          # by inheritance from :root/body.
+          if grep -nE '(^|,)[[:space:]]*:root i([,{:[:space:]]|$)' /tmp/css.out; then
+            echo "::error::stylesheet targets <i> — breaks FontAwesome/Material icon fonts (PR #15)"
+            exit 1
+          fi
+
+          # …but the italic rule itself must still exist and still cover <em>,
+          # so the guard above cannot be satisfied by deleting the rule.
+          grep -q '^:root em,'                 /tmp/css.out || { echo "::error::italic rule missing";      exit 1; }
           echo "Stylesheet OK ($(wc -c </tmp/css.out) bytes)"
 
       - name: Smoke-test — font binary endpoint

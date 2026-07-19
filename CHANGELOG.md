@@ -17,6 +17,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Icon fonts render as icons again instead of as raw Private Use Area
+  codepoints. `<i>` sat in the italic rule's selector list, so
+  `font-family: <Inter stack> !important` applied at specificity (0,1,1) and
+  outranked the (0,1,0) class selector that every icon font declares its
+  family on — FontAwesome (`<i class="fa fa-user">` in v4,
+  `<i class="fa-solid fa-user">` in v5/6), Material Icons
+  (`<i class="material-icons">`), Ionicons and Glyphicons. Reported against
+  [Nextcloud Passwords](https://github.com/marius-wieschollek/passwords),
+  which renders every icon as `<i class="icon fa fa-{name}">`.
+  `<i>` is now omitted from the rule outright rather than excluding one class:
+  the user-agent stylesheet already declares `i { font-style: italic }` and
+  the Inter stack still reaches `<i>` by inheritance, so italic prose is
+  unchanged while *every* icon font is fixed — not just FontAwesome 4.
+  The integration smoke test now fails if any rule targets `<i>` again. PR #15.
+
 ## 2.1.2 - 2026-05-11
 
 ### Fixed
