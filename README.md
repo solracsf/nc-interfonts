@@ -5,7 +5,7 @@
 
 # Inter Fonts — Nextcloud App
 
-[![Nextcloud](https://img.shields.io/badge/Nextcloud-32_to_35-0082c9.svg)](https://nextcloud.com)
+[![Nextcloud](https://img.shields.io/badge/Nextcloud-32_to_35-0082c9.svg)](https://github.com/nextcloud/server)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/solracsf/nc-interfonts)
 [![License: AGPL v3+](https://img.shields.io/badge/License-AGPL_v3%2B-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Inter font](https://img.shields.io/badge/font-Inter_v4-black.svg)](https://rsms.me/inter/)
