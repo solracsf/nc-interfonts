@@ -7,6 +7,14 @@
 # against the Nextcloud app store schema, and verifies that the bundled
 # WOFF2 filenames match the version declared in fonts/inter-version.txt.
 # Runs on every push and pull request to main.
+#
+# The two PHP jobs (php-lint, phpunit) are gated on the `changes` job so a
+# diff that touches no PHP-relevant file — a font bump, a README edit, a
+# CHANGELOG entry — does not spend six runner slots re-proving code that
+# did not move. The gate is a job-level `if`, never a workflow-level
+# `paths:` filter: a job skipped by `if` still reports its check as
+# successful, whereas a workflow skipped by `paths:` reports nothing at
+# all and leaves main's required-checks gate pending forever.
 
 name: CI
 
@@ -27,8 +35,74 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect PHP changes in the diff
+    runs-on: ubuntu-latest
+    outputs:
+      php: ${{ steps.filter.outputs.php }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The default shallow clone holds a single commit, so neither end
+          # of the push/PR range exists locally. Full history is what makes
+          # `git diff <base>...<head>` resolvable at all.
+          fetch-depth: 0
+
+      - name: Decide whether the PHP jobs have anything to do
+        id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          case "$EVENT" in
+            pull_request) BASE="$PR_BASE";     HEAD="$PR_HEAD"    ;;
+            push)         BASE="$PUSH_BEFORE"; HEAD="$PUSH_AFTER" ;;
+            *)            BASE="";             HEAD=""            ;;
+          esac
+
+          # Fail open, deliberately. workflow_dispatch carries no diff range
+          # at all (that is how release-prepare.yml fires CI on a release/*
+          # branch), a brand-new branch reports `before` as all-zeros, and a
+          # force-push can orphan the old head. Every one of those runs the
+          # PHP jobs rather than quietly declaring them unnecessary.
+          if [ -z "$BASE" ] || [ -z "$HEAD" ] \
+             || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null \
+             || ! git cat-file -e "${HEAD}^{commit}" 2>/dev/null; then
+            echo "No usable diff range for event '${EVENT}' — running the PHP jobs."
+            echo "php=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Three-dot range: diff against the merge base, so commits that
+          # landed on main after this branch forked are not counted as ours.
+          CHANGED=$(git diff --name-only "${BASE}...${HEAD}")
+          echo "--- files changed in ${BASE}...${HEAD} ---"
+          printf '%s\n' "$CHANGED"
+
+          # Wider than *.php on purpose:
+          #   composer.json     — Dependabot bumps PHPUnit there and touches
+          #                       nothing else; skipping would merge the bump
+          #                       untested (composer.lock is gitignored here)
+          #   phpunit.xml.dist  — suite config decides what actually runs
+          #   this workflow     — edits to the two jobs below must exercise them
+          if grep -qE '(\.php$|^composer\.json$|^phpunit\.xml\.dist$|^\.github/workflows/ci\.yml$)' <<<"$CHANGED"; then
+            echo "php=true" >>"$GITHUB_OUTPUT"
+            echo "PHP-relevant changes found — php-lint and phpunit will run."
+          else
+            echo "php=false" >>"$GITHUB_OUTPUT"
+            echo "No PHP-relevant changes — php-lint and phpunit will be skipped."
+          fi
+
   php-lint:
     name: PHP ${{ matrix.php }} syntax check
+    needs: changes
+    if: needs.changes.outputs.php == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -61,6 +135,8 @@ jobs:
 
   phpunit:
     name: PHP ${{ matrix.php }} unit tests
+    needs: changes
+    if: needs.changes.outputs.php == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
