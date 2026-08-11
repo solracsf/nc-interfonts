@@ -3,8 +3,8 @@
 #
 # .github/workflows/integration.yml
 #
-# End-to-end integration test. For every supported Nextcloud major
-# (32–35 per appinfo/info.xml), this workflow:
+# End-to-end integration test. For each Nextcloud major in the matrix
+# below (see "Matrix scope"), this workflow:
 #
 #   1. Pulls the official `nextcloud:N-apache` Docker image
 #   2. Spins up the container with SQLite (no separate DB service —
@@ -33,11 +33,21 @@
 # fail-fast: false so one NC version's regression doesn't mask the
 # others.
 #
-# Matrix scope: Nextcloud majors that currently have a published
-# Docker image on Docker Hub (`nextcloud:N-apache`). appinfo/info.xml
-# declares support up to NC 35, but NC 34 and 35 had not been
-# released as images at the time this workflow was authored — add
-# them to the matrix below once they appear, no other change needed.
+# Matrix scope: the two newest Nextcloud majors that both fall inside
+# the range appinfo/info.xml declares (32–35) and have a published
+# Docker image on Docker Hub (`nextcloud:N-apache`). NC 35 has no
+# image yet; when it appears, roll the matrix forward one major again.
+#
+# Two majors, not four: the app's whole surface is a stylesheet route,
+# a font route and a template-rendered listener, and those APIs have
+# not moved across 32–34. Testing the newest published pair catches
+# breakage where it actually happens — in current Nextcloud — and
+# keeps the required-checks gate on main to a couple of minutes.
+#
+# Rolling the matrix forward renames the checks (`Nextcloud N smoke
+# test`), so main's "PR Ruleset" required-status-check list has to be
+# updated in the same change or every later PR blocks on a check that
+# no longer gets reported.
 
 name: Integration
 
@@ -61,9 +71,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Extend to '34', '35' once those majors are published on
-        # Docker Hub. The rest of the workflow is version-agnostic.
-        nextcloud: ['32', '33']
+        # Roll forward to '34', '35' once NC 35 is published on Docker
+        # Hub. The rest of the workflow is version-agnostic.
+        nextcloud: ['33', '34']
 
     steps:
       - name: Checkout
