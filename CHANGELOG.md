@@ -19,12 +19,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
-- CI no longer runs the PHP lint and unit-test jobs when a change touches
-  no PHP-relevant file, so font bumps, documentation edits and release
-  version bumps stop spending six runner slots re-proving code that did
-  not move. `composer.json`, `phpunit.xml.dist` and the CI workflow itself
-  count as PHP-relevant alongside `*.php`, and the check falls back to
-  running the jobs whenever it cannot resolve a diff range. PR #22.
+- CI skips the PHP lint and unit-test work when a change touches no
+  PHP-relevant file, so font bumps, documentation edits and release version
+  bumps no longer run the PHP setup, dependency install and test cycle
+  three times over. `composer.json`, `phpunit.xml.dist` and the CI workflow
+  itself count as PHP-relevant alongside `*.php`, and the check falls back
+  to running everything whenever it cannot resolve a diff range. PR #22.
 - Integration smoke tests now run against Nextcloud 33 and 34 rather than
   32 and 33, now that the `nextcloud:34-apache` image is published. The
   supported range in `appinfo/info.xml` is unchanged at 32 to 35, so
