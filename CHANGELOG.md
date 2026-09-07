@@ -25,8 +25,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The `force_version` input of the font-update workflow is passed to the
   script through the environment instead of being interpolated into the
   shell command.
+- App Store and README copy no longer uses em dashes. This affects the
+  `summary` and `description` in `appinfo/info.xml`, which the Nextcloud
+  App Store renders verbatim on the listing page.
 
 ### Fixed
+- Workflow comments no longer point at `release.yml`, which was split into
+  `release-prepare.yml` and `release-publish.yml`. Two of them also claimed
+  the release flow triggers CI through `gh workflow run`, which nothing in
+  the repository calls, and one placed the tarball dry-run job in
+  `integration.yml` when it lives in `ci.yml`.
+- README said "trough" where it meant "through", twice.
 - The weekly Inter font update can reach `main` again. It committed and
   pushed directly to `main`, which the branch ruleset has rejected since
   it was activated on 2026-04-27. The failure stayed invisible because

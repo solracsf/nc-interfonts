@@ -7,7 +7,7 @@
       xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
     <id>interfonts</id>
     <name>Inter Fonts</name>
-    <summary>Replaces every Nextcloud interface font with Inter — self-hosted, zero external requests</summary>
+    <summary>Replaces every Nextcloud interface font with Inter: self-hosted, zero external requests</summary>
     <description><![CDATA[
 # Inter Fonts
 
@@ -16,13 +16,13 @@ typeface designed specifically for computer screens by Rasmus Andersson.
 
 ## Features
 
-- **Zero external requests** — the Inter variable font is fully self-hosted inside the app, no Google Fonts, no CDN
+- **Zero external requests**: the Inter variable font is fully self-hosted inside the app, no Google Fonts, no CDN
 - **Single variable font** covers every weight from 100 to 900 (roman + italic)
-- **Zero FOUT** — both WOFF2 files are preloaded with `<link rel="preload">` so the font is in cache before paint
-- **Zero CLS** — a metric-compatible synthetic Arial fallback matches Inter's vertical metrics until the real font swaps in
+- **Zero FOUT**: both WOFF2 files are preloaded with `<link rel="preload">` so the font is in cache before paint
+- **Zero CLS**: a metric-compatible synthetic Arial fallback matches Inter's vertical metrics until the real font swaps in
 - **Works on every page** including the login form, public share pages, password recovery, and the Impersonate / Guests apps
 - **Works in sub-directory installs** via runtime URL generation through `IURLGenerator`
-- **Cache-safe across upgrades** — font filenames embed the upstream Inter version, so a new release automatically becomes a new URL
+- **Cache-safe across upgrades**: font filenames embed the upstream Inter version, so a new release automatically becomes a new URL
 - **Covers the whole UI**: navigation, file lists, modals, popovers, login boxes, dashboards, and more
 - **Tabular numerals** on file sizes and timestamps so digits stay vertically aligned
 

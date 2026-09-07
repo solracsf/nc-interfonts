@@ -6,6 +6,6 @@
 #
 # SC2129 is a pure style preference (combine multiple >>file redirects
 # into a `{ ... } >> file` block). It flags long-stable release scripts
-# in .github/workflows/release.yml and update-inter-fonts.yml. Refactoring
-# working release code purely for style is not worth the regression risk.
-disable=SC2129,SC2002
+# in .github/workflows/release-prepare.yml, release-publish.yml and
+# update-inter-fonts.yml. Refactoring working release code purely for
+# style is not worth the regression risk.
