@@ -37,12 +37,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # Allows release-prepare.yml to fire CI on a release/* branch via
-  # `gh workflow run`. Pushes/PRs created with the built-in
-  # GITHUB_TOKEN do not trigger downstream workflow runs (anti-loop
-  # protection); workflow_dispatch IS the documented exception, so
-  # the release prep PR's required-checks gate gets satisfied without
-  # needing a personal access token.
+  # Kept for manual re-runs. This is NOT how the release flow gets its
+  # checks reported: nothing in this repository calls `gh workflow run`.
+  # release-prepare.yml pushes its branch and opens its PR as the
+  # RELEASE_TOKEN PAT owner, which fires the ordinary push and
+  # pull_request events, so CI lands in the check_suite that branch
+  # protection actually consults.
   workflow_dispatch:
 
 permissions:
@@ -284,7 +284,7 @@ jobs:
         # Using the official download script + binary directly (rather than a
         # wrapper action) so we can pass `-shellcheck` with our SC2129
         # exclusion. SC2129 is a style preference shellcheck raises for the
-        # multiple `>>"$GITHUB_OUTPUT"` redirects in release.yml — refactoring
+        # multiple `>>"$GITHUB_OUTPUT"` redirects in release-prepare.yml — refactoring
         # working release scripts purely for style is not worth the regression
         # risk; see .shellcheckrc for the matching local-tooling config.
         run: |
@@ -317,7 +317,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build the release tarball without publishing
-        # Mirrors the tarball-building step in release.yml so structural
+        # Mirrors the tarball-building step in release-publish.yml so structural
         # regressions (missing folder, accidentally-shipped dev file, wrong
         # top-level name) surface on every PR — not in production at release
         # time. The tarball is discarded after the structural assertions pass.
@@ -327,7 +327,7 @@ jobs:
           APP_DIR=/tmp/build/interfonts
           mkdir -p "${APP_DIR}"
 
-          # Same explicit allowlist as release.yml — keep these two in sync.
+          # Same explicit allowlist as release-publish.yml — keep these two in sync.
           cp -r appinfo fonts img lib LICENSES "${APP_DIR}/"
           cp COPYING README.md CHANGELOG.md "${APP_DIR}/"
 
@@ -363,7 +363,7 @@ jobs:
           done
 
           # Negative assertions — dev-only artefacts must NOT be in the tarball.
-          # Matches release.yml's explicit allowlist; if either drifts, this fails.
+          # Matches release-publish.yml's explicit allowlist; if either drifts, this fails.
           for forbidden in \
               interfonts/composer.json \
               interfonts/composer.lock \

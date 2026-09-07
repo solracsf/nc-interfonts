@@ -10,7 +10,7 @@
 #   2. Spins up the container with SQLite (no separate DB service —
 #      keeps each matrix entry fully self-contained)
 #   3. Copies the app into /var/www/html/custom_apps/interfonts using
-#      the SAME allowlist that release.yml ships to the App Store, so
+#      the SAME allowlist that release-publish.yml ships to the App Store, so
 #      we test the production deliverable rather than the dev tree
 #   4. Enables the app via `occ app:enable`
 #   5. Smoke-tests the actual HTTP endpoints with curl:
@@ -56,9 +56,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # Same reason as ci.yml: release-prepare.yml fires this on the
-  # release/* branch via `gh workflow run` so the PR's required-checks
-  # gate is satisfied without a PAT.
+  # Same as ci.yml: kept for manual re-runs. release-prepare.yml relies
+  # on its RELEASE_TOKEN PAT firing the ordinary pull_request event, not
+  # on a workflow_dispatch.
   workflow_dispatch:
 
 permissions:
@@ -156,7 +156,7 @@ jobs:
 
           # Stage the tree into custom_apps/ using the SAME allowlist as
           # the release-publish tarball (and the tarball-dry-run job in
-          # this same workflow file): only what real users will load.
+          # ci.yml): only what real users will load.
           # If these three lists ever drift, we are testing something
           # different from what we ship.
           docker exec --user root nc bash -c '

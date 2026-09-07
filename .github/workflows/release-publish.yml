@@ -19,7 +19,7 @@
 #      personal access token
 #   4. Builds release notes
 #   5. Builds the App Store tarball (interfonts/ folder, runtime files only;
-#      same allowlist as integration.yml's tarball-dry-run job)
+#      same allowlist as ci.yml's tarball-dry-run job)
 #   6. Publishes the GitHub Release with the tarball attached
 #   7. Polls GitHub's CDN until the asset is gzip-valid + tar-valid +
 #      SHA-256 matches the locally built tarball — bridges the
@@ -193,7 +193,7 @@ jobs:
       # The auto-generated GitHub source archive has folder name
       # "nc-interfonts-X.Y.Z/" and includes dev files — unsuitable.
       #
-      # The allowlist below MUST match integration.yml's tarball-dry-run
+      # The allowlist below MUST match ci.yml's tarball-dry-run
       # job — the dry-run runs on every PR and asserts these contents
       # (plus that no dev files leak in), so any drift here would have
       # been caught before merge.
