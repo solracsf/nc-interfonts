@@ -8,14 +8,6 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-
-
-
-
-
-
-
-
 ## [Unreleased]
 
 ### Changed
@@ -30,6 +22,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   supported range in `appinfo/info.xml` is unchanged at 32 to 35, so
   Nextcloud 32 remains supported, it is simply no longer the version
   exercised in CI. PR #22.
+- The `force_version` input of the font-update workflow is passed to the
+  script through the environment instead of being interpolated into the
+  shell command.
+
+### Fixed
+- The weekly Inter font update can reach `main` again. It committed and
+  pushed directly to `main`, which the branch ruleset has rejected since
+  it was activated on 2026-04-27. The failure stayed invisible because
+  Inter has stood at v4.1 since November 2024, so the push step never ran
+  and every weekly run reported green with nothing to do. The workflow now
+  commits to a `release/vX.Y.Z` branch and opens a pull request labelled
+  `release`, which also gives a font bump a full CI pass before it lands.
+- A new Inter release now reaches Nextcloud App Store users. The font-update
+  workflow published its own GitHub Release with no tarball attached and
+  never contacted the App Store. It now hands off to `release-publish.yml`
+  through the `release` label, so the tag, the App Store tarball, the
+  GitHub Release and the signed App Store upload all happen the same way
+  they do for a normal release.
+- The changelog promoter no longer inserts a blank line into this file on
+  every release. Both release workflows printed a newline before the
+  `## [Unreleased]` heading on top of the one the text above it already
+  ended with, so the gap grew by one line per release and had reached nine
+  by v2.1.3. Collapsed back to a single blank line here.
+- A generated font-update entry no longer links to a `tag/vv4.1` URL. The
+  Inter version string already carries its leading `v` and the link added
+  a second one.
+- `gh release create` is no longer given `--latest` and `--prerelease` at
+  the same time. A prerelease cannot be a repository's latest release, so
+  the two flags are now mutually exclusive.
 
 ## 2.1.3 - 2026-07-19
 

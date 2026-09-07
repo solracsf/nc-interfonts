@@ -12,9 +12,40 @@
 #      fonts/InterVariable-Italic-<ver>.woff2
 #   5. Updates fonts/inter-version.txt
 #   6. Bumps the app minor version in appinfo/info.xml and CHANGELOG.md
-#   7. Commits everything directly to main
-#   8. Creates and pushes a Git tag for the new app version
-#   9. Publishes a GitHub Release with release notes
+#   7. Commits to a `release/vX.Y.Z` branch and opens a PR labelled
+#      `release`
+#
+# Why a PR and not a push to main
+# -------------------------------
+# main is covered by the "PR Ruleset": a pull request is mandatory, every
+# required check must report green, and the bypass-actor list is empty —
+# GitHub Actions included. This workflow used to `git push origin main`
+# directly, which the ruleset rejects. The step never actually ran after
+# the ruleset went active on 2026-04-27, because Inter has stood at v4.1
+# since November 2024; the weekly runs kept reporting green while the one
+# branch that mattered was unreachable.
+#
+# Opening a PR fixes that and buys the font bump a full CI pass on the
+# way in: fonts-consistency proves the new WOFF2 filenames match
+# inter-version.txt, and the integration smoke tests fetch the new binary
+# out of a real Nextcloud before any of it reaches users.
+#
+# Handing off to release-publish.yml
+# ----------------------------------
+# The `release` label is what release-publish.yml keys on. When this PR
+# merges, that workflow tags the merge commit, builds the App Store
+# tarball, publishes the GitHub Release with the tarball attached, and
+# POSTs the signed archive to the Nextcloud App Store. Publishing used to
+# be duplicated here, and incompletely: it created a GitHub Release with
+# no tarball attached and never contacted the App Store at all, so store
+# users would not have received the new font.
+#
+# Why RELEASE_TOKEN
+# -----------------
+# Same reason as release-prepare.yml: pushes and PRs made with the
+# built-in GITHUB_TOKEN do not trigger downstream workflow runs, so the
+# PR's required-checks rollup would stay permanently empty and it could
+# never merge. See that workflow's header for the one-time PAT setup.
 #
 # Inter v4.x ZIP layout (confirmed):
 #   web/InterVariable.woff2          <- roman variable font
@@ -38,7 +69,8 @@ on:
         default: ""
 
 permissions:
-  contents: write
+  contents: write        # push the release/* branch (the push itself uses RELEASE_TOKEN)
+  pull-requests: write   # gh pr create (likewise)
 
 jobs:
   update-fonts:
@@ -47,13 +79,33 @@ jobs:
 
     steps:
       # -----------------------------------------------------------------------
-      # 1. Checkout with full history so we can commit & tag
+      # 0. Guard — fail loudly if RELEASE_TOKEN is missing
+      #
+      # Checked before anything is downloaded or rewritten, so a missing
+      # token cannot leave a half-updated tree or a stale release branch.
+      # -----------------------------------------------------------------------
+      - name: Verify RELEASE_TOKEN secret is configured
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_TOKEN" ]; then
+            echo "::error::RELEASE_TOKEN secret is not set — see the header of .github/workflows/release-prepare.yml for the one-time PAT setup."
+            exit 1
+          fi
+          echo "RELEASE_TOKEN is configured."
+
+      # -----------------------------------------------------------------------
+      # 1. Checkout with full history so we can branch & commit
       # -----------------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: main
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # PAT, not GITHUB_TOKEN — actions/checkout configures git's
+          # credential helper from this token, so the later `git push`
+          # authenticates as the PAT owner and fires CI normally.
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       # -----------------------------------------------------------------------
       # 2. Resolve target Inter version
@@ -62,9 +114,12 @@ jobs:
         id: resolve
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Passed through the environment rather than interpolated into the
+          # script body, so the dispatch input cannot inject shell.
+          FORCE_VERSION: ${{ inputs.force_version }}
         run: |
-          if [[ -n "${{ inputs.force_version }}" ]]; then
-            TARGET="${{ inputs.force_version }}"
+          if [[ -n "$FORCE_VERSION" ]]; then
+            TARGET="$FORCE_VERSION"
           else
             TARGET=$(gh release view --repo rsms/inter --json tagName -q '.tagName')
           fi
@@ -100,9 +155,10 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Check if update is needed
         id: check
+        env:
+          TARGET:  ${{ steps.resolve.outputs.target_version }}
+          CURRENT: ${{ steps.current.outputs.current_version }}
         run: |
-          TARGET="${{ steps.resolve.outputs.target_version }}"
-          CURRENT="${{ steps.current.outputs.current_version }}"
           if [[ "$TARGET" == "$CURRENT" ]]; then
             echo "Already at $TARGET - nothing to do."
             echo "needs_update=false" >> "$GITHUB_OUTPUT"
@@ -242,6 +298,12 @@ jobs:
       # Promotes ## [Unreleased] content to the new versioned entry (falls
       # back to a generic Changed entry if [Unreleased] is empty).
       # Resets [Unreleased] to empty for the next cycle.
+      #
+      # The `## [Unreleased]` heading is printed WITHOUT a leading newline
+      # on purpose. The head slice already ends with the blank line that
+      # separated the heading from the intro, so printing another one grew
+      # the gap by exactly one line on every release — it had reached nine
+      # by v2.1.3. Keep this printf bare.
       # -----------------------------------------------------------------------
       - name: Update CHANGELOG.md
         if: steps.check.outputs.needs_update == 'true'
@@ -259,7 +321,9 @@ jobs:
           ' CHANGELOG.md | sed '/^[[:space:]]*$/d')
 
           if [[ -z "$UNRELEASED" ]]; then
-            BODY="### Changed"$'\n'"- Updated bundled Inter font to ${INTER}."$'\n'"  Source: https://github.com/rsms/inter/releases/tag/v${INTER}"
+            # $INTER already carries its leading 'v' (e.g. "v4.1"), so the
+            # tag URL must not add another one.
+            BODY="### Changed"$'\n'"- Updated bundled Inter font to ${INTER}."$'\n'"  Source: https://github.com/rsms/inter/releases/tag/${INTER}"
           else
             BODY="$UNRELEASED"
           fi
@@ -273,7 +337,7 @@ jobs:
             !found { print }
           ' CHANGELOG.md > /tmp/changelog-new.md
 
-          printf '\n## [Unreleased]\n' >> /tmp/changelog-new.md
+          printf '## [Unreleased]\n' >> /tmp/changelog-new.md
           cat /tmp/changelog-entry.md >> /tmp/changelog-new.md
 
           awk '
@@ -286,77 +350,117 @@ jobs:
           echo "CHANGELOG.md updated: added entry for ${NEW_APP}"
 
       # -----------------------------------------------------------------------
-      # 10. Commit all changes directly to main
+      # 10. Commit on a release/vX.Y.Z branch and push
       # -----------------------------------------------------------------------
-      - name: Commit updated files
+      - name: Create release branch and commit
+        id: branch
         if: steps.check.outputs.needs_update == 'true'
         env:
           NEW_APP: ${{ steps.appver.outputs.new_app_version }}
           INTER:   ${{ steps.resolve.outputs.target_version }}
         run: |
+          set -euo pipefail
+
+          TAG="v${NEW_APP}"
+          BRANCH="release/${TAG}"
+
+          # Abort if the tag or the branch already exists on origin — that
+          # means an earlier run got part-way and needs cleaning up first.
+          if git ls-remote --tags origin "$TAG" | grep -q .; then
+            echo "::error::tag $TAG already exists on origin"
+            exit 1
+          fi
+          if git ls-remote --heads origin "$BRANCH" | grep -q .; then
+            echo "::error::branch $BRANCH already exists on origin — close or delete it first"
+            exit 1
+          fi
+
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          git checkout -b "$BRANCH"
           git add fonts/ appinfo/info.xml CHANGELOG.md
-
           git commit -m "chore(release): bump app to ${NEW_APP}, update Inter font to ${INTER}"
-          git push origin main
+
+          # release/* is not a protected ref; main is
+          git push origin "$BRANCH"
+          echo "Pushed: $BRANCH"
+
+          echo "tag=$TAG"       >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
       # -----------------------------------------------------------------------
-      # 11. Create and push a Git tag for the new app version
+      # 11. Ensure the 'release' label exists, then open the PR
+      #
+      # release-publish.yml filters merged PRs on this exact label, so it is
+      # what makes the merge tag, package and publish to the App Store.
       # -----------------------------------------------------------------------
-      - name: Tag new app version
+      - name: Ensure 'release' label exists
         if: steps.check.outputs.needs_update == 'true'
         env:
-          NEW_APP: ${{ steps.appver.outputs.new_app_version }}
-          INTER:   ${{ steps.resolve.outputs.target_version }}
+          # GITHUB_TOKEN is fine for label CRUD — labels are not subject to
+          # the anti-loop rule that forces the PAT elsewhere in this file.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v${NEW_APP}"
-          git tag -a "$TAG" -m "Release ${TAG} - bundles Inter font ${INTER}"
-          git push origin "$TAG"
-          echo "Pushed tag: $TAG"
+          # Idempotent — `--force` updates the label if it already exists.
+          gh label create release \
+            --color C5DEF5 \
+            --description "Release prep PR — auto-publishes on merge" \
+            --force
 
-      # -----------------------------------------------------------------------
-      # 12. Write release notes to file, then publish GitHub Release
-      # -----------------------------------------------------------------------
-      - name: Write release notes
+      - name: Open release PR
+        id: pr
         if: steps.check.outputs.needs_update == 'true'
         env:
+          # PAT, NOT GITHUB_TOKEN — `gh pr create` as the PAT owner fires
+          # `pull_request: opened` normally, which triggers CI + Integration
+          # in the check_suite that branch protection consults.
+          GH_TOKEN:      ${{ secrets.RELEASE_TOKEN }}
           NEW_APP:       ${{ steps.appver.outputs.new_app_version }}
           OLD_APP:       ${{ steps.appver.outputs.current_app_version }}
           INTER:         ${{ steps.resolve.outputs.target_version }}
           CURRENT_INTER: ${{ steps.current.outputs.current_version }}
-          REPO_URL:      ${{ github.server_url }}/${{ github.repository }}
+          TAG:           ${{ steps.branch.outputs.tag }}
+          BRANCH:        ${{ steps.branch.outputs.branch }}
         run: |
-          cat > /tmp/release-notes.md << 'NOTES_EOF'
-          ## What changed
+          set -euo pipefail
 
-          Updated bundled Inter variable font to **${INTER}** (was `${CURRENT_INTER}`).
+          # The HTML-comment markers are read back by release-publish.yml
+          # from the merged PR body — they survive squash-and-merge because
+          # the body is independent of the commit message.
+          BODY=$(cat <<EOF
+          Automated font update — bundles Inter **${INTER}** (was \`${CURRENT_INTER}\`)
+          and bumps the app **${OLD_APP} → ${NEW_APP}**.
 
           | | |
           |---|---|
-          | **App version** | `${NEW_APP}` (was `${OLD_APP}`) |
+          | **App version** | \`${NEW_APP}\` (was \`${OLD_APP}\`) |
           | **Bundled Inter** | [${INTER}](https://github.com/rsms/inter/releases/tag/${INTER}) |
 
           ### Files updated
-          - `fonts/InterVariable-*.woff2`
-          - `fonts/InterVariable-Italic-*.woff2`
-          - `fonts/inter-version.txt`
-          - `appinfo/info.xml`
-          - `CHANGELOG.md`
 
-          ---
-          _Released automatically by the [Update Inter Fonts](${REPO_URL}/actions/workflows/update-inter-fonts.yml) workflow._
-          NOTES_EOF
+          - \`fonts/InterVariable-*.woff2\`
+          - \`fonts/InterVariable-Italic-*.woff2\`
+          - \`fonts/inter-version.txt\`
+          - \`appinfo/info.xml\`
+          - \`CHANGELOG.md\`
 
-          envsubst < /tmp/release-notes.md > /tmp/release-notes-expanded.md
+          When this PR merges into \`main\`, the **Release — Publish** workflow
+          fires automatically: it tags \`${TAG}\`, builds the App Store tarball,
+          creates the GitHub Release with the tarball attached, and posts the
+          signed archive to the Nextcloud App Store.
 
-      - name: Publish GitHub Release
-        if: steps.check.outputs.needs_update == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NEW_APP:  ${{ steps.appver.outputs.new_app_version }}
-        run: |
-          gh release create "v${NEW_APP}" \
-            --title "Inter Fonts ${NEW_APP}" \
-            --notes-file /tmp/release-notes-expanded.md
+          <!-- release-publish:prerelease=false -->
+          <!-- release-publish:bump=minor -->
+          EOF
+          )
+
+          PR_URL=$(gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(release): ${TAG} — Inter ${INTER}" \
+            --body "$BODY" \
+            --label release)
+
+          echo "Opened: $PR_URL"
+          echo "::notice title=Font update PR opened::Review and merge: $PR_URL"
