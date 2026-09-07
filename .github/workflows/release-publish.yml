@@ -223,17 +223,20 @@ jobs:
           NEW:         ${{ steps.meta.outputs.version }}
           PRERELEASE:  ${{ steps.meta.outputs.prerelease }}
         run: |
-          PRERELEASE_FLAG=""
+          # A prerelease cannot also be the repository's "Latest" release,
+          # so --latest and --prerelease are mutually exclusive rather than
+          # additive. Passing both left the outcome up to GitHub; pick one.
+          RELEASE_ARGS=(
+            --title "Inter Fonts ${NEW}"
+            --notes-file /tmp/release-notes.md
+          )
           if [[ "$PRERELEASE" == "true" ]]; then
-            PRERELEASE_FLAG="--prerelease"
+            RELEASE_ARGS+=(--prerelease --latest=false)
+          else
+            RELEASE_ARGS+=(--latest)
           fi
 
-          gh release create "$TAG" \
-            --title "Inter Fonts ${NEW}" \
-            --notes-file /tmp/release-notes.md \
-            --latest \
-            /tmp/interfonts.tar.gz \
-            $PRERELEASE_FLAG
+          gh release create "$TAG" "${RELEASE_ARGS[@]}" /tmp/interfonts.tar.gz
 
           echo "Published: $TAG"
           echo "URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${TAG}"

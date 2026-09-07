@@ -224,6 +224,12 @@ jobs:
       # Promotes ## [Unreleased] content to the new versioned entry.
       # If [Unreleased] is empty, falls back to a generic "Version bump"
       # entry. Resets [Unreleased] to empty for the next cycle.
+      #
+      # The `## [Unreleased]` heading is printed WITHOUT a leading newline
+      # on purpose. The head slice already ends with the blank line that
+      # separated the heading from the intro, so printing another one grew
+      # the gap by exactly one line on every release — it had reached nine
+      # by v2.1.3. Keep this printf bare.
       # -----------------------------------------------------------------------
       - name: Update CHANGELOG.md
         env:
@@ -253,7 +259,7 @@ jobs:
             !found { print }
           ' CHANGELOG.md > /tmp/changelog-new.md
 
-          printf '\n## [Unreleased]\n' >> /tmp/changelog-new.md
+          printf '## [Unreleased]\n' >> /tmp/changelog-new.md
           cat /tmp/changelog-entry.md >> /tmp/changelog-new.md
 
           awk '
