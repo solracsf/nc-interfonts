@@ -117,18 +117,12 @@ final class Application extends App implements IBootstrap {
      * Read once from fonts/inter-version.txt and memoised.
      */
     public static function interVersion(): string {
-        if (self::$interVersion === null) {
-            $file = __DIR__ . '/../../fonts/inter-version.txt';
-            if (is_readable($file)) {
-                $raw = file_get_contents($file);
-                self::$interVersion = $raw === false
-                    ? 'unknown'
-                    : ltrim(trim($raw), 'vV');
-            } else {
-                self::$interVersion = 'unknown';
-            }
+        if (self::$interVersion !== null) {
+            return self::$interVersion;
         }
-        return self::$interVersion;
+        $file = __DIR__ . '/../../fonts/inter-version.txt';
+        $raw  = is_readable($file) ? file_get_contents($file) : false;
+        return self::$interVersion = $raw === false ? 'unknown' : ltrim(trim($raw), 'vV');
     }
 
     /** Filename of the roman variable WOFF2 (e.g. InterVariable-4.1.woff2) */
