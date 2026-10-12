@@ -247,6 +247,18 @@ jobs:
             exit 1
           fi
 
+          # Regression guard (issue #27): no rule may target <pre>.
+          #
+          # Nextcloud core resets <pre> to `font-family: inherit`, and apps use
+          # it for prose (Tables column descriptions), so forcing a font on it
+          # turned that text monospace. Code blocks keep their text in <code>,
+          # which the monospace rule still covers (issue #9).
+          if grep -nE '(^|,)[[:space:]]*:root( \[contenteditable\])? pre([,{:[:space:]]|$)' /tmp/css.out; then
+            echo "::error::stylesheet targets <pre>: turns prose in <pre> monospace (issue #27)"
+            exit 1
+          fi
+          grep -qE '(^|,)[[:space:]]*:root code([,{:[:space:]]|$)' /tmp/css.out || { echo "::error::monospace rule for <code> missing (issue #9)"; exit 1; }
+
           # …but the italic rule itself must still exist and still cover <em>,
           # so the guard above cannot be satisfied by deleting the rule.
           grep -q '^:root em,'                 /tmp/css.out || { echo "::error::italic rule missing";      exit 1; }

@@ -60,6 +60,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `gh release create` is no longer given `--latest` and `--prerelease` at
   the same time. A prerelease cannot be a repository's latest release, so
   the two flags are now mutually exclusive.
+- `<pre>` elements keep the Nextcloud UI font again, so Nextcloud Tables
+  column descriptions are no longer rendered in monospace. This regressed in
+  2.1.2 (issue #27). Content in `<code>`, `<kbd>`, `<samp>` and CodeMirror
+  stays monospace.
 
 ## 2.1.3 - 2026-07-19
 
