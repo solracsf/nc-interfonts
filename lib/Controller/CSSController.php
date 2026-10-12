@@ -203,10 +203,10 @@ final class CSSController extends Controller {
 /*
  * Restore monospace on code-like elements. The :root [contenteditable] rule
  * above declares font-family !important on rich-text editor roots; that value
- * is inherited into every descendant, overriding the user agent's monospace
- * default on <pre>, <code>, <kbd>, <samp>. Without this rule, code blocks in
- * the Text app's markdown editor (ProseMirror) and inline code in Notes,
- * Talk's composer, and Collectives render in Inter. Issue #9.
+ * is inherited into every descendant, overriding the monospace the user agent
+ * gives <code>, <kbd>, <samp>. Without this rule, code blocks in the Text
+ * app's markdown editor (ProseMirror) and inline code in Notes, Talk's
+ * composer, and Collectives render in Inter. Issue #9.
  *
  * The font-family below MUST match Nextcloud core verbatim. Nextcloud's
  * core/css/styles.scss declares a single hardcoded rule on `code`:
@@ -215,10 +215,15 @@ final class CSSController extends Controller {
  * It is not exposed as a CSS custom property, so we cannot inherit it via
  * var(); the only way to stay visually consistent with the rest of the UI is
  * to repeat the stack here. Stable on NC v32 and v33; unchanged on master.
- * Extending the same stack to <pre>, <kbd>, <samp>, and CodeMirror surfaces
- * makes them consistent with <code> too — core leaves those at the UA
- * default monospace, and our stack still ends in `monospace`, so the worst
+ * The same stack is extended to <kbd>, <samp>, <tt> and CodeMirror surfaces
+ * so they match <code>; our stack still ends in `monospace`, so the worst
  * case is identical to UA behaviour on systems without Lucida.
+ *
+ * <pre> is deliberately NOT listed. Core resets it to `font-family: inherit`
+ * and only styles `code`, and apps use <pre> for prose (Nextcloud Tables
+ * renders column descriptions as <pre>, issue #27). Code blocks put their text
+ * in <code> (Text's blocks are <pre><code contenteditable>), which the
+ * selectors below still cover.
  *
  * font-feature-settings is reset so Inter's ligatures and contextual
  * alternates (e.g. ==, !=, => joined glyphs) cannot leak into code regions
@@ -229,14 +234,12 @@ final class CSSController extends Controller {
  * level and appear later in source order, so they remain robust against any
  * future Nextcloud rule that targets code inside an editor with !important.
  */
-:root pre,
 :root code,
 :root kbd,
 :root samp,
 :root tt,
 :root .cm-content,
 :root .cm-content *,
-:root [contenteditable] pre,
 :root [contenteditable] code,
 :root [contenteditable] kbd,
 :root [contenteditable] samp {

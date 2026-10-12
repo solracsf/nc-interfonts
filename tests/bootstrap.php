@@ -13,10 +13,10 @@ declare(strict_types=1);
  * classes touch at class-declaration time — `OCP\AppFramework\App`,
  * `OCP\AppFramework\Bootstrap\IBootstrap`, etc. They allow the tests in
  * this project to load `OCA\InterFonts\AppInfo\Application` without a
- * full Nextcloud server installation. We do NOT stub out Controller,
- * IRequest, response classes or the like — that would be a slippery
- * slope; controller behaviour is tested in CI against a real Nextcloud
- * via the standard NC integration test harness, not here.
+ * full Nextcloud server installation. Stubs stay minimal: only what a unit
+ * test needs (CSSController needs Controller, IRequest, IURLGenerator and
+ * DataDisplayResponse); behaviour that needs a real server is tested in CI
+ * against a real Nextcloud via the integration workflow.
  */
 
 $autoload = __DIR__ . '/../vendor/autoload.php';
