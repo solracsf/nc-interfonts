@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## 2.1.4 - 2026-10-12
+
 ### Changed
 - CI skips the PHP lint and unit-test work when a change touches no
   PHP-relevant file, so font bumps, documentation edits and release version
@@ -28,7 +30,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - App Store and README copy no longer uses em dashes. This affects the
   `summary` and `description` in `appinfo/info.xml`, which the Nextcloud
   App Store renders verbatim on the listing page.
-
 ### Fixed
 - Workflow comments no longer point at `release.yml`, which was split into
   `release-prepare.yml` and `release-publish.yml`. Two of them also claimed
